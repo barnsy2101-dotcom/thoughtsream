@@ -64,6 +64,8 @@
   .burst.pop { animation: pop-ring 0.5s ease-out forwards; }
   @keyframes pop-ring { 0% { opacity: 0.9; transform: scale(0.2); } 100% { opacity: 0; transform: scale(2.4); } }
   .pinned-core { box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), 0 0 0 1px rgba(251,191,36,0.35), 0 8px 24px rgba(0,0,0,0.35) !important; }
+  .topic-glow { box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), 0 0 22px rgba(129,140,248,0.30), 0 0 60px rgba(129,140,248,0.12), 0 12px 32px rgba(0,0,0,0.3) !important; }
+  .topic-zone { position: absolute; left: 0; top: 0; border-radius: 9999px; pointer-events: none; will-change: transform; transition: opacity 0.3s; }
   .spin { animation: spin 1s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
   ::-webkit-scrollbar { width: 8px; }
@@ -88,6 +90,7 @@ const uid = () => 't' + Date.now().toString(36) + Math.random().toString(36).sli
 const pairKey = (a, b) => (a < b ? a + '|' + b : b + '|' + a);
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 const ACCENT = '#22d3ee';
+const TOPIC_ACCENT = '#818cf8';
 
 /* index 0 = neutral default; others are user-assignable */
 const COLORS = [
@@ -164,14 +167,14 @@ const PinIcon     = (p) => <Icon {...p} d={<><path d="M12 17v5"/><path d="M9 10.
 const MsgIcon     = (p) => <Icon {...p} d={<path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/>} />;
 
 /* ---------- sizing ---------- */
-const nodeRadius = (n) => n.isHub ? 84 : clamp(34 + Math.min(n.text.length, 90) * 1.15, 42, 128);
+const nodeRadius = (n) => n.isHub ? 84 : n.isTopic ? 74 : clamp(34 + Math.min(n.text.length, 90) * 1.15, 42, 128);
 
 /* ---------- serialization for undo + storage ---------- */
-const pickNode = ({ id, text, notes, color, x, y, isHub, title, created, collapsed, isQuestion, pinned }) =>
-  ({ id, text, notes, color, x: Math.round(x), y: Math.round(y), isHub, title, created, collapsed, isQuestion, pinned });
+const pickNode = ({ id, text, notes, color, x, y, isHub, title, created, collapsed, isQuestion, pinned, isTopic, topicId }) =>
+  ({ id, text, notes, color, x: Math.round(x), y: Math.round(y), isHub, title, created, collapsed, isQuestion, pinned, isTopic, topicId });
 const serializeWorld = (w) => JSON.stringify({ nodes: w.nodes.map(pickNode), links: w.links, rejected: w.rejected });
 const hydrateNode = (n, i) => ({
-  notes: '', color: 0, title: undefined, collapsed: false, isQuestion: false, pinned: false, ...n,
+  notes: '', color: 0, title: undefined, collapsed: false, isQuestion: false, pinned: false, isTopic: false, topicId: null, ...n,
   created: n.created || i, vx: 0, vy: 0, floating: false, r: 0,
 });
 
@@ -219,6 +222,9 @@ function App() {
   const [apiKey, setApiKey] = useState(() => localStorage.getItem(LS_APIKEY) || '');
   const [targetId, setTargetId] = useState(null);
   const [pureDump, setPureDump] = useState(false);
+  const [activeTopic, setActiveTopic] = useState(null);
+  const [topicMenuOpen, setTopicMenuOpen] = useState(false);
+  const [newTopicName, setNewTopicName] = useState('');
 
   const worldRef = useRef(null);
   if (!worldRef.current) {
@@ -259,6 +265,8 @@ function App() {
   const replayRef = useRef(null);
   const targetRef = useRef(null);
   const pureDumpRef = useRef(false);
+  const activeTopicRef = useRef(null);
+  const zoneEls = useRef({});
   const threadLineRef = useRef(null);
   const apiKeyRef = useRef(apiKey);
   const aiBusyRef = useRef(false);
@@ -275,6 +283,7 @@ function App() {
   useEffect(() => { apiKeyRef.current = apiKey; }, [apiKey]);
   useEffect(() => { targetRef.current = targetId; }, [targetId]);
   useEffect(() => { pureDumpRef.current = pureDump; }, [pureDump]);
+  useEffect(() => { activeTopicRef.current = activeTopic; }, [activeTopic]);
 
   const screenToWorld = (sx, sy) => {
     const v = viewRef.current;
@@ -325,6 +334,28 @@ function App() {
     bump();
   }, []);
 
+  /* ---------- topics (manual gravity clusters, no links) ---------- */
+  const createTopic = useCallback((name) => {
+    name = (name || '').trim();
+    if (!name) return null;
+    const w = worldRef.current;
+    pushUndo();
+    const spawn = screenToWorld(window.innerWidth / 2 + (Math.random() * 120 - 60), window.innerHeight * 0.42);
+    const t = {
+      id: uid(), isTopic: true, title: name, text: name, notes: '', color: 2,
+      x: spawn.x, y: spawn.y, vx: 0, vy: 0, floating: false,
+      isHub: false, collapsed: false, isQuestion: false, pinned: false, topicId: null,
+      created: Date.now(),
+    };
+    t.r = nodeRadius(t);
+    w.nodes.push(t);
+    setActiveTopic(t.id);
+    spawnBurst(spawn.x, spawn.y, { color: TOPIC_ACCENT });
+    w.updated = Date.now();
+    bump();
+    return t;
+  }, []);
+
   /* ---------- thought creation ---------- */
   const addThought = useCallback((text, opts = {}) => {
     text = text.trim();
@@ -338,7 +369,15 @@ function App() {
       x: spawn.x, y: spawn.y, vx: (Math.random() - 0.5) * 1.2, vy: -1,
       floating: !opts.at, targetY: target, isHub: false, created: Date.now(), collapsed: false,
       isQuestion: /\?\s*$/.test(text),
+      topicId: ('topicId' in opts) ? opts.topicId : activeTopicRef.current,
     };
+    // if assigned to a topic, spawn it near that topic so it visibly drifts into the cluster
+    const topicNode = n.topicId && byId(n.topicId);
+    if (topicNode && !opts.at) {
+      n.x = topicNode.x + (Math.random() * 160 - 80);
+      n.y = topicNode.y + topicNode.r + 50 + Math.random() * 40;
+      n.floating = false;
+    }
     n.r = nodeRadius(n);
     w.nodes.push(n);
     // thread mode: auto-link to the active target and keep it selected
@@ -360,7 +399,9 @@ function App() {
     window.tsUndo = undo; window.tsHidden = () => [...hiddenIdSet()];
     window.tsTarget = (id) => setTargetId(id === undefined ? null : id);
     window.tsGetTarget = () => targetRef.current;
-    window.tsDebug = () => ({ linkFromRef: linkFromRef.current, linkFromState: linkFrom, drag: dragRef.current && dragRef.current.node.id });
+    window.tsDebug = () => ({ linkFromRef: linkFromRef.current, drag: dragRef.current && dragRef.current.node.id, activeTopic: activeTopicRef.current });
+    window.tsCreateTopic = (name) => createTopic(name);
+    window.tsSetActiveTopic = (id) => setActiveTopic(id === undefined ? null : id);
   }, [addThought, undo]);
 
   /* ---------- AI engine: Claude API when key set, keyword fallback otherwise ---------- */
@@ -614,6 +655,9 @@ Generate exactly 3 short, concrete follow-on ideas that develop this thought. Ea
     w.nodes = w.nodes.filter(n => !set.has(n.id));
     w.links = w.links.filter(l => !set.has(l.a) && !set.has(l.b));
     w.suggestions = w.suggestions.filter(s => !set.has(s.a) && !set.has(s.b));
+    // orphan any thoughts whose topic was deleted; clear the active topic if it's gone
+    w.nodes.forEach(n => { if (n.topicId && set.has(n.topicId)) n.topicId = null; });
+    if (activeTopicRef.current && set.has(activeTopicRef.current)) setActiveTopic(null);
     w.updated = Date.now();
     setModalId(null); setSelIds(new Set()); bump();
   };
@@ -671,7 +715,7 @@ Generate exactly 3 short, concrete follow-on ideas that develop this thought. Ea
     viewRef.current = { x: 0, y: 0, s: 1 };
     undoStack.current = []; redoStack.current = [];
     lastAIHashRef.current = '';
-    setModalId(null); setActiveSugg(null); setActiveLink(null); setLinkFrom(null); setSelIds(new Set()); setReplayIdx(null); setTargetId(null);
+    setModalId(null); setActiveSugg(null); setActiveLink(null); setLinkFrom(null); setSelIds(new Set()); setReplayIdx(null); setTargetId(null); setActiveTopic(null); setTopicMenuOpen(false);
     localStorage.setItem(LS_CURRENT, w.id);
     bump();
   };
@@ -913,6 +957,18 @@ Generate exactly 3 short, concrete follow-on ideas that develop this thought. Ea
         if (!fixed(a)) { a.vx += dx * f * d * 0.02; a.vy += dy * f * d * 0.02; }
         if (!fixed(b)) { b.vx -= dx * f * d * 0.02; b.vy -= dy * f * d * 0.02; }
       }
+      // topic gravity: pull members loosely into orbit around their topic (no link, topic stays put)
+      for (const n of nodes) {
+        if (!n.topicId || hidden.has(n.id) || fixed(n)) continue;
+        const t = byId(n.topicId);
+        if (!t || t.id === n.id || hidden.has(t.id)) continue;
+        let dx = t.x - n.x, dy = t.y - n.y;
+        const d = Math.hypot(dx, dy) || 0.01;
+        const orbit = t.r + n.r + 34;
+        const f = (d - orbit) * 0.0016; // gentle — weaker than a link spring
+        n.vx += (dx / d) * f * d * 0.02;
+        n.vy += (dy / d) * f * d * 0.02;
+      }
       for (const n of nodes) {
         if (hidden.has(n.id)) continue;
         if (fixed(n)) continue;
@@ -935,6 +991,22 @@ Generate exactly 3 short, concrete follow-on ideas that develop this thought. Ea
         el.style.transform = `translate(${n.x}px, ${n.y}px) translate(-50%, -50%)`;
         const match = !q || (n.text + ' ' + (n.notes || '') + ' ' + (n.title || '')).toLowerCase().includes(q);
         el.style.opacity = match ? '1' : '0.14';
+      }
+      // topic zones: faint halo sized to enclose each topic's gravity members
+      for (const n of nodes) {
+        if (!n.isTopic) continue;
+        const zel = zoneEls.current[n.id];
+        if (!zel) continue;
+        if (hidden.has(n.id)) { zel.style.display = 'none'; continue; }
+        let maxR = n.r + 60;
+        for (const m of nodes) {
+          if (m.topicId === n.id && !hidden.has(m.id)) {
+            maxR = Math.max(maxR, Math.hypot(m.x - n.x, m.y - n.y) + m.r + 22);
+          }
+        }
+        zel.style.display = '';
+        zel.style.width = zel.style.height = (maxR * 2) + 'px';
+        zel.style.transform = `translate(${n.x}px, ${n.y}px) translate(-50%, -50%)`;
       }
       const curve = (a, b) => {
         const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
@@ -1094,7 +1166,7 @@ Generate exactly 3 short, concrete follow-on ideas that develop this thought. Ea
       const typing = /INPUT|TEXTAREA/.test(document.activeElement && document.activeElement.tagName);
       if (e.key === 'Escape') {
         setLinkFrom(null); setActiveSugg(null); setActiveLink(null); setModalId(null);
-        setSelIds(new Set()); setSettingsOpen(false); setExportOpen(false); setTargetId(null);
+        setSelIds(new Set()); setSettingsOpen(false); setExportOpen(false); setTargetId(null); setTopicMenuOpen(false);
         return;
       }
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') {
@@ -1119,7 +1191,7 @@ Generate exactly 3 short, concrete follow-on ideas that develop this thought. Ea
       return;
     }
     panRef.current = { sx: e.clientX, sy: e.clientY, vx: viewRef.current.x, vy: viewRef.current.y };
-    setActiveSugg(null); setActiveLink(null); setLinkFrom(null); setSelIds(new Set()); setExportOpen(false); setTargetId(null);
+    setActiveSugg(null); setActiveLink(null); setLinkFrom(null); setSelIds(new Set()); setExportOpen(false); setTargetId(null); setTopicMenuOpen(false);
   };
   const onBubbleDown = (node) => (e) => {
     e.stopPropagation();
@@ -1148,6 +1220,8 @@ Generate exactly 3 short, concrete follow-on ideas that develop this thought. Ea
   const w = worldRef.current;
   const modalNode = modalId && byId(modalId);
   const targetNode = targetId && byId(targetId);
+  const topics = w.nodes.filter(n => n.isTopic);
+  const activeTopicNode = activeTopic && byId(activeTopic);
   const suggCard = activeSugg && w.suggestions.find(s => s.id === activeSugg);
   const linkCard = activeLink && w.links.find(l => l.id === activeLink);
   const store = loadStore();
@@ -1161,6 +1235,12 @@ Generate exactly 3 short, concrete follow-on ideas that develop this thought. Ea
 
       {/* world layer */}
       <div ref={worldElRef} className="absolute inset-0" style={{ transformOrigin: '0 0' }}>
+        {/* topic gravity zones (behind everything) */}
+        {w.nodes.filter(n => n.isTopic).map(n => (
+          <div key={'zone' + n.id} className="topic-zone" ref={el => { if (el) zoneEls.current[n.id] = el; }}
+            style={{ background: 'radial-gradient(circle, rgba(129,140,248,0.09) 0%, rgba(129,140,248,0.05) 55%, transparent 72%)',
+              border: '1px solid rgba(129,140,248,0.14)', display: 'none' }} />
+        ))}
         <svg className="absolute" style={{ overflow: 'visible', width: 1, height: 1 }}>
           {w.links.map(l => (
             <g key={l.id}>
@@ -1284,15 +1364,18 @@ Generate exactly 3 short, concrete follow-on ideas that develop this thought. Ea
               onDoubleClick={e => { e.stopPropagation(); setModalId(n.id); }}
               className="bubble">
               <div className={'bubble-core relative rounded-full flex flex-col items-center justify-center text-center px-5 py-3 '
-                  + (n.isHub ? 'hub-glow' : '') + (n.pinned ? ' pinned-core' : '') + (targetId === n.id ? ' target-ring' : '')}
+                  + (n.isHub ? 'hub-glow' : '') + (n.isTopic ? 'topic-glow' : '') + (n.pinned ? ' pinned-core' : '') + (targetId === n.id ? ' target-ring' : '')}
                 style={{
-                  background: n.isHub ? 'rgba(11,36,52,0.62)' : c.bg,
+                  background: n.isHub ? 'rgba(11,36,52,0.62)' : n.isTopic ? 'rgba(28,26,60,0.66)'
+                    : (n.topicId && n.color === 0 ? 'rgba(129,140,248,0.08)' : c.bg),
                   border: n.isHub
                     ? '1.5px solid rgba(34,211,238,0.6)'
-                    : `1px solid ${isSource || isSel || targetId === n.id ? ACCENT : c.border}`,
-                  color: n.isHub ? '#a5f3fc' : c.text,
-                  maxWidth: n.isHub ? 260 : 230,
-                  minWidth: n.isHub ? 170 : 0,
+                    : n.isTopic
+                    ? `1.5px solid ${isSel || targetId === n.id ? ACCENT : 'rgba(129,140,248,0.6)'}`
+                    : `1px solid ${isSource || isSel || targetId === n.id ? ACCENT : (n.topicId && n.color === 0 ? 'rgba(129,140,248,0.4)' : c.border)}`,
+                  color: n.isHub ? '#a5f3fc' : n.isTopic ? '#c7d2fe' : c.text,
+                  maxWidth: n.isHub ? 260 : n.isTopic ? 240 : 230,
+                  minWidth: n.isHub || n.isTopic ? 170 : 0,
                   ...(isSel ? { outline: `2px solid ${ACCENT}`, outlineOffset: 3 } : {}),
                 }}>
                 {n.isHub && (
@@ -1300,9 +1383,14 @@ Generate exactly 3 short, concrete follow-on ideas that develop this thought. Ea
                     <SparkIcon size={11} /> Meta-Hub{n.collapsed ? ` · ${memberCount}` : ''}
                   </span>
                 )}
-                <span className={n.isHub ? 'font-display font-bold text-lg leading-tight' : 'text-[13.5px] leading-snug font-normal'}
+                {n.isTopic && (
+                  <span className="text-[10px] uppercase tracking-widest mb-0.5" style={{ color: 'rgba(165,180,252,0.8)' }}>
+                    ◆ Topic{activeTopic === n.id ? ' · active' : ''}
+                  </span>
+                )}
+                <span className={n.isHub || n.isTopic ? 'font-display font-bold text-lg leading-tight' : 'text-[13.5px] leading-snug font-normal'}
                   style={{ wordBreak: 'break-word' }}>
-                  {n.isHub ? n.title : n.text}
+                  {n.isHub || n.isTopic ? n.title : n.text}
                 </span>
                 {!n.isHub && n.notes && <span className="mt-1 w-1.5 h-1.5 rounded-full" style={{ background: c.dot === '#64748b' ? ACCENT : c.dot }} title="Has notes" />}
                 <button data-ui
@@ -1486,10 +1574,45 @@ Generate exactly 3 short, concrete follow-on ideas that develop this thought. Ea
             </button>
           </div>
         )}
-        <div className="glass input-glow rounded-2xl flex items-center gap-2 pl-4 pr-2 py-2">
+        {/* topic dropdown menu */}
+        {topicMenuOpen && (
+          <div className="glass absolute bottom-full mb-2 left-2 rounded-xl p-1.5 w-60 z-50" onPointerDown={e => e.stopPropagation()}>
+            <button type="button" onClick={() => { setActiveTopic(null); setTopicMenuOpen(false); }}
+              className={'ghost-btn w-full text-left text-[13px] rounded-lg px-3 py-2 flex items-center gap-2 ' + (!activeTopic ? 'text-indigo-200' : 'text-slate-300')}>
+              <span className="w-2 h-2 rounded-full shrink-0" style={{ background: activeTopic ? 'transparent' : TOPIC_ACCENT, border: '1px solid ' + TOPIC_ACCENT }} />
+              No topic <span className="text-slate-600 text-[11px]">— free-floating</span>
+            </button>
+            {topics.map(t => (
+              <button key={t.id} type="button" onClick={() => { setActiveTopic(t.id); setTopicMenuOpen(false); }}
+                className={'ghost-btn w-full text-left text-[13px] rounded-lg px-3 py-2 flex items-center gap-2 ' + (activeTopic === t.id ? 'text-indigo-200' : 'text-slate-300')}>
+                <span className="w-2 h-2 rounded-full shrink-0" style={{ background: activeTopic === t.id ? TOPIC_ACCENT : 'transparent', border: '1px solid ' + TOPIC_ACCENT }} />
+                <span className="truncate">{t.title}</span>
+                <span className="text-slate-600 text-[11px] ml-auto shrink-0">{w.nodes.filter(n => n.topicId === t.id).length}</span>
+              </button>
+            ))}
+            <div className="flex items-center gap-1.5 mt-1 pt-1.5 border-t border-slate-700/50 px-1">
+              <input value={newTopicName} onChange={e => setNewTopicName(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); if (newTopicName.trim()) { createTopic(newTopicName); setNewTopicName(''); setTopicMenuOpen(false); } } }}
+                placeholder="New topic…" autoComplete="off"
+                className="flex-1 bg-slate-800/60 border border-slate-600/40 rounded-lg px-2.5 py-1.5 text-slate-100 text-[13px] min-w-0" />
+              <button type="button" onClick={() => { if (newTopicName.trim()) { createTopic(newTopicName); setNewTopicName(''); setTopicMenuOpen(false); } }}
+                className="shrink-0 w-8 h-8 rounded-lg flex items-center justify-center text-indigo-200 bg-indigo-500/20 hover:bg-indigo-500/35 border border-indigo-400/40">
+                <PlusIcon size={15} />
+              </button>
+            </div>
+          </div>
+        )}
+        <div className="glass input-glow rounded-2xl flex items-center gap-2 pl-2 pr-2 py-2">
+          <button type="button" onClick={() => setTopicMenuOpen(o => !o)}
+            title="Choose a topic — new thoughts drift into its cluster"
+            className={'flex items-center gap-1.5 shrink-0 rounded-xl px-2.5 h-9 text-[13px] border max-w-[140px] '
+              + (activeTopicNode ? 'text-indigo-200 bg-indigo-500/15 border-indigo-400/40' : 'text-slate-400 bg-slate-700/30 border-slate-500/30 hover:text-slate-200')}>
+            <span className="shrink-0">◆</span>
+            <span className="truncate">{activeTopicNode ? activeTopicNode.title : 'Topic'}</span>
+          </button>
           <input id="thought-input" value={input} onChange={e => setInput(e.target.value)} onPaste={onPaste}
-            placeholder="Drop a thought…" autoComplete="off"
-            className="flex-1 bg-transparent text-slate-100 placeholder-slate-500 text-[15px]" />
+            placeholder={activeTopicNode ? `Add to “${activeTopicNode.title}”…` : 'Drop a thought…'} autoComplete="off"
+            className="flex-1 bg-transparent text-slate-100 placeholder-slate-500 text-[15px] min-w-0" />
           {speechSupported && (
             <button type="button" onClick={toggleVoice} title={listening ? 'Stop voice capture' : 'Speak thoughts'}
               className={'w-9 h-9 rounded-xl flex items-center justify-center border ' + (listening
@@ -1504,7 +1627,7 @@ Generate exactly 3 short, concrete follow-on ideas that develop this thought. Ea
           </button>
         </div>
         <p className="text-center text-[11px] text-slate-600 mt-1.5">
-          Enter to add · 💬 on a bubble = thread replies here · drag 🔗 to link · 📌 pin to anchor · click + Del to remove
+          Enter to add · ◆ pick a Topic to cluster thoughts · 💬 thread replies · drag 🔗 to link · 📌 pin · click + Del to remove
         </p>
       </form>
 
