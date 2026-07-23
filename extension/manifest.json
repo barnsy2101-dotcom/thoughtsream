@@ -1,0 +1,35 @@
+{
+  "manifest_version": 3,
+  "name": "ThoughtStream Capture",
+  "version": "1.0",
+  "description": "Capture quick thoughts and notes and sync them to your local ThoughtStream board.",
+  "permissions": [
+    "sidePanel",
+    "storage",
+    "tabs"
+  ],
+  "host_permissions": [
+    "http://localhost/*",
+    "https://www.youtube.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
+  "sidebar_action": {
+    "default_title": "ThoughtStream Capture",
+    "default_panel": "sidepanel.html"
+  },
+  "content_scripts": [
+    {
+      "matches": ["http://localhost/*"],
+      "js": ["content.js"],
+      "run_at": "document_end"
+    }
+  ],
+  "action": {
+    "default_title": "Open ThoughtStream Capture"
+  }
+}

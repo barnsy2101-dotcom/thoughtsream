@@ -1,0 +1,24 @@
+diff --git a/index.html b/index.html
+index 3fe0606..cb8bf64 100644
+--- a/index.html
++++ b/index.html
+@@ -4,13 +4,12 @@
+ <meta charset="UTF-8" />
+ <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+ <title>ThoughtStream — Fluid AI Canvas</title>
+-<link rel="preconnect" href="https://fonts.googleapis.com" />
+-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet" />
+-<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+-<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+-<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+-<script src="https://cdn.tailwindcss.com"></script>
++<!-- Fully offline: all libraries and fonts are vendored locally in ./vendor (no internet needed) -->
++<link href="vendor/fonts.css" rel="stylesheet" />
++<script src="vendor/react.production.min.js"></script>
++<script src="vendor/react-dom.production.min.js"></script>
++<script src="vendor/babel.min.js"></script>
++<script src="vendor/tailwind.js"></script>
+ <style>
+   html, body { height: 100%; margin: 0; overflow: hidden; background: #0b1120; font-family: 'Inter', ui-sans-serif, system-ui, sans-serif; }
+   * { -webkit-tap-highlight-color: transparent; }

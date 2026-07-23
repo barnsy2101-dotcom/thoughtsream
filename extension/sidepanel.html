@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>ThoughtStream Capture</title>
+  <style>
+    /* Premium Styling - Pure Neutral Translucent Glass theme */
+    :root {
+      --bg: transparent;
+      --gradient-bg: rgba(18, 18, 18, 0.70);
+      --panel-bg: rgba(30, 30, 30, 0.55);
+      --glass-bg: rgba(255, 255, 255, 0.05);
+      --border: rgba(255, 255, 255, 0.12);
+      --border-accent: rgba(255, 255, 255, 0.22);
+      --primary: #EAEAEA;
+      --primary-hover: #FFFFFF;
+      --text: #EAEAEA;
+      --text-muted: #A3A3A3;
+      --accent-glow: rgba(255, 255, 255, 0.08);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html {
+      background: transparent !important;
+    }
+
+    body {
+      background: var(--gradient-bg) !important;
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Segoe UI", Roboto, sans-serif;
+      padding: 16px;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      transition: background 0.15s ease-out;
+    }
+
+    /* custom scrollbar */
+    ::-webkit-scrollbar {
+      width: 5px;
+    }
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.15);
+      border-radius: 4px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: rgba(255, 255, 255, 0.3);
+    }
+
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 12px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--primary);
+      letter-spacing: -0.01em;
+      text-transform: uppercase;
+    }
+
+    .status {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--text-muted);
+      background: rgba(255, 255, 255, 0.06);
+      padding: 4px 10px;
+      border-radius: 20px;
+      border: 1px solid var(--border);
+      text-transform: uppercase;
+      letter-spacing: 0.02em;
+    }
+
+    .status-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #737373;
+      box-shadow: 0 0 4px #737373;
+      transition: background 0.3s, box-shadow 0.3s;
+    }
+
+    .status.connected {
+      color: #EAEAEA;
+      background: rgba(255, 255, 255, 0.12);
+      border-color: rgba(255, 255, 255, 0.25);
+    }
+    .status.connected .status-dot {
+      background: #EAEAEA;
+      box-shadow: 0 0 8px rgba(255, 255, 255, 0.7);
+    }
+
+    /* Opacity Control Slider Bar */
+    .opacity-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 14px;
+      padding: 6px 12px;
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      font-size: 11px;
+      color: var(--text-muted);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+    }
+    .opacity-label {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-weight: 500;
+      white-space: nowrap;
+    }
+    .opacity-slider {
+      flex: 1;
+      height: 4px;
+      -webkit-appearance: none;
+      appearance: none;
+      background: rgba(255, 255, 255, 0.2);
+      border-radius: 2px;
+      outline: none;
+      cursor: pointer;
+    }
+    .opacity-slider::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 13px;
+      height: 13px;
+      border-radius: 50%;
+      background: #EAEAEA;
+      cursor: pointer;
+      box-shadow: 0 0 6px rgba(0,0,0,0.5);
+      transition: transform 0.15s, background 0.15s;
+    }
+    .opacity-slider::-webkit-slider-thumb:hover {
+      transform: scale(1.25);
+      background: #FFFFFF;
+    }
+    .opacity-val {
+      font-size: 10px;
+      font-weight: 600;
+      min-width: 32px;
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+      color: var(--primary);
+    }
+
+    .input-card {
+      background: var(--panel-bg);
+      border: 1px solid var(--border-accent);
+      border-radius: 16px;
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.08), 0 8px 32px 0 rgba(0, 0, 0, 0.35);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      transition: border-color 0.25s, box-shadow 0.25s, background 0.15s;
+    }
+
+    .input-card:focus-within {
+      border-color: rgba(255, 255, 255, 0.45);
+      box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.12), 0 8px 32px 0 rgba(0, 0, 0, 0.45), 0 0 20px var(--accent-glow);
+    }
+
+    textarea {
+      background: transparent;
+      border: none;
+      color: var(--text);
+      font-family: inherit;
+      font-size: 13px;
+      line-height: 1.6;
+      resize: none;
+      height: 100px;
+      outline: none;
+      width: 100%;
+    }
+
+    textarea::placeholder {
+      color: #888888;
+    }
+
+    .footer-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+      padding-top: 10px;
+    }
+
+    .char-count {
+      font-size: 11px;
+      color: var(--text-muted);
+      font-variant-numeric: tabular-nums;
+    }
+
+    button {
+      background: #EAEAEA;
+      color: #121212;
+      border: 1px solid #FFFFFF;
+      border-radius: 8px;
+      padding: 8px 16px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.2s;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+    }
+
+    button:hover {
+      background: #FFFFFF;
+      transform: translateY(-1px);
+      box-shadow: 0 6px 16px rgba(255, 255, 255, 0.2);
+    }
+
+    button:active {
+      transform: translateY(0) scale(0.98);
+    }
+
+    .list-section {
+      margin-top: 24px;
+      flex-grow: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .list-header {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text-muted);
+      margin-bottom: 10px;
+    }
+
+    .log-list {
+      flex-grow: 1;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      padding-right: 2px;
+    }
+
+    .log-item {
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 10px;
+      padding: 12px;
+      font-size: 12px;
+      line-height: 1.5;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      transition: border-color 0.2s;
+    }
+
+    .log-item:hover {
+      border-color: rgba(255, 255, 255, 0.22);
+    }
+
+    .log-item .time {
+      font-size: 10px;
+      color: var(--text-muted);
+      align-self: flex-end;
+    }
+
+    .empty-state {
+      text-align: center;
+      color: var(--text-muted);
+      font-size: 12px;
+      padding: 40px 16px;
+      border: 1px dashed rgba(255, 255, 255, 0.1);
+      border-radius: 10px;
+      margin-top: 4px;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <!-- SparkIcon / Lightning bolt -->
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" style="margin-top: -1px;">
+        <path d="M11 21h-1l1-7H7.5c-.88 0-.34-.9.34-1.9L13 3h1l-1 7h3.5c.88 0 .34.9-.34 1.9L11 21z"/>
+      </svg>
+      ThoughtStream
+    </div>
+    <div id="status" class="status">
+      <span class="status-dot"></span>
+      <span id="status-text">Connecting</span>
+    </div>
+  </header>
+
+  <div class="opacity-bar">
+    <span class="opacity-label">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <circle cx="12" cy="12" r="9"/>
+        <path d="M12 3v18M12 3a9 9 0 0 1 0 18"/>
+      </svg>
+      Transparency
+    </span>
+    <input type="range" id="opacity-slider" min="0" max="100" value="70" class="opacity-slider">
+    <span id="opacity-val" class="opacity-val">70%</span>
+  </div>
+
+  <div class="input-card">
+    <textarea id="note-input" placeholder="Capture a thought as you watch..." maxlength="280" autofocus></textarea>
+    <div class="footer-row">
+      <div id="char-count" class="char-count">0 / 280</div>
+      <button id="add-btn">
+        <span>Capture</span>
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+          <path d="M12 5v14M5 12h14" stroke-linecap="round"/>
+        </svg>
+      </button>
+    </div>
+  </div>
+
+  <div class="list-section">
+    <div class="list-header">Captured Notes (Unsorted)</div>
+    <div id="log-list" class="log-list">
+      <div class="empty-state">Your captured notes will pile up here.</div>
+    </div>
+  </div>
+
+  <script src="sidepanel.js"></script>
+</body>
+</html>
