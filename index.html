@@ -376,8 +376,8 @@ const applyCollisions = (nodes, hidden, bounds, fixed) => {
             if (a.isPulling || b.isPulling) continue;
             if (!bounds[b.id]) continue;
             
-            let dx = (b.x + bounds[b.id].w) - (a.x + bounds[a.id].w);
-            let dy = (b.y + bounds[b.id].h) - (a.y + bounds[a.id].h);
+            let dx = b.x - a.x;
+            let dy = b.y - a.y;
             if (Math.abs(dx) < 0.01 && Math.abs(dy) < 0.01) dx = 0.01;
             
             const isParentChild = (a.isTopic && b.topicId === a.id) || (b.isTopic && a.topicId === b.id);
@@ -428,12 +428,7 @@ const applyLinkForces = (links, byId, hidden, fixed, bounds) => {
     const a = byId(l.a), b = byId(l.b);
     if (!a || !b || hidden.has(a.id) || hidden.has(b.id)) continue;
     
-    const cxA = a.x + (bounds[a.id] ? bounds[a.id].w : 0);
-    const cyA = a.y + (bounds[a.id] ? bounds[a.id].h : 0);
-    const cxB = b.x + (bounds[b.id] ? bounds[b.id].w : 0);
-    const cyB = b.y + (bounds[b.id] ? bounds[b.id].h : 0);
-    
-    let dx = cxB - cxA, dy = cyB - cyA;
+    let dx = b.x - a.x, dy = b.y - a.y;
     const d = Math.hypot(dx, dy) || 0.01;
     const rest = a.r + b.r + 70;
     const f = (d - rest) * 0.002;
@@ -465,21 +460,16 @@ const applyTopicGravity = (nodes, hidden, bounds, fixed, held) => {
             R_x += (idx % 2) * (N > 4 ? 40 : 0);
             R_y += (idx % 2) * (N > 4 ? 40 : 0);
         }
-        n.offsetX = Math.round((bounds[t.id] ? bounds[t.id].w : 0) - (bounds[n.id] ? bounds[n.id].w : 0) + Math.cos(angle) * R_x);
-        n.offsetY = Math.round((bounds[t.id] ? bounds[t.id].h : 0) - (bounds[n.id] ? bounds[n.id].h : 0) + Math.sin(angle) * R_y);
+        n.offsetX = Math.round(Math.cos(angle) * R_x);
+        n.offsetY = Math.round(Math.sin(angle) * R_y);
       }
 
       let targetX = t.x + n.offsetX;
       let targetY = t.y + n.offsetY;
 
       if (n.isPulling) {
-        const cxT = t.x + (bounds[t.id] ? bounds[t.id].w : 0);
-        const cyT = t.y + (bounds[t.id] ? bounds[t.id].h : 0);
-        const cxN = n.x + (bounds[n.id] ? bounds[n.id].w : 0);
-        const cyN = n.y + (bounds[n.id] ? bounds[n.id].h : 0);
-        
-        const dTopicX = cxT - cxN;
-        const dTopicY = cyT - cyN;
+        const dTopicX = t.x - n.x;
+        const dTopicY = t.y - n.y;
         
         let collisionDist = t.r + n.r + 5;
         if (bounds[n.id] && bounds[t.id]) {
@@ -490,8 +480,8 @@ const applyTopicGravity = (nodes, hidden, bounds, fixed, held) => {
         if (distToTopic < collisionDist) {
           n.isPulling = false;
         } else {
-          targetX = cxT - (bounds[n.id] ? bounds[n.id].w : 0);
-          targetY = cyT - (bounds[n.id] ? bounds[n.id].h : 0);
+          targetX = t.x;
+          targetY = t.y;
         }
       }
 

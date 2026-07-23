@@ -1,17 +1,17 @@
 {
   "manifest_version": 3,
   "name": "ThoughtStream Capture",
-  "version": "1.2",
-  "description": "Capture quick thoughts and notes and sync them to your local ThoughtStream board.",
+  "version": "1.3",
+  "description": "Capture quick thoughts and notes directly on YouTube and any webpage, syncing them to your ThoughtStream board.",
   "permissions": [
     "sidePanel",
     "storage",
     "tabs",
-    "activeTab"
+    "activeTab",
+    "scripting"
   ],
   "host_permissions": [
-    "http://*/*",
-    "https://*/*"
+    "<all_urls>"
   ],
   "background": {
     "service_worker": "background.js"
@@ -25,7 +25,7 @@
   },
   "content_scripts": [
     {
-      "matches": ["http://*/*", "https://*/*"],
+      "matches": ["<all_urls>"],
       "js": ["content.js"],
       "run_at": "document_end"
     }
