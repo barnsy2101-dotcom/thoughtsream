@@ -1,34 +1,52 @@
 // background.js - ThoughtStream Capture Extension Service Worker
 
-// 1. Explicitly open the side panel when the extension icon in the toolbar is clicked.
-// This works reliably in Chrome/Brave/Edge. We guard it with a check because Opera GX
-// does not support chrome.sidePanel and uses the native sidebar_action key instead.
+// 1. Handle Side Panel Opening (Chrome/Brave/Edge)
 if (typeof chrome !== 'undefined' && chrome.sidePanel) {
   chrome.action.onClicked.addListener(async (tab) => {
     try {
       await chrome.sidePanel.open({ windowId: tab.windowId });
     } catch (err) {
-      console.error('Failed to open side panel:', err);
+      console.log('Side panel fallback or opening handled by browser.');
     }
   });
-} else {
-  console.log('chrome.sidePanel is not supported in this browser. Falling back to native sidebar_action.');
 }
 
-// 2. Handle storage buffer syncing when the ThoughtStream tab loads
+// 2. Handle Keyboard Shortcut (Alt+Shift+T) to toggle Floating In-Page Overlay
+chrome.commands.onCommand.addListener((command) => {
+  if (command === 'toggle-overlay') {
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      if (tabs[0] && tabs[0].id) {
+        chrome.tabs.sendMessage(tabs[0].id, { type: 'TOGGLE_FLOATING_OVERLAY' });
+      }
+    });
+  }
+});
+
+// 3. Handle Storage Buffer & Syncing
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'GET_BUFFER') {
     (async () => {
       try {
         const result = await chrome.storage.local.get({ thoughtBuffer: [] });
         sendResponse({ thoughts: result.thoughtBuffer });
-        // Clear the buffer since it's now synced to the main app page
         await chrome.storage.local.set({ thoughtBuffer: [] });
       } catch (err) {
-        console.error('Failed to get/clear thought buffer:', err);
         sendResponse({ thoughts: [] });
       }
     })();
-    return true; // Keep message channel open for async response
+    return true;
+  }
+  if (message.type === 'BUFFER_THOUGHT') {
+    (async () => {
+      try {
+        const result = await chrome.storage.local.get({ thoughtBuffer: [] });
+        result.thoughtBuffer.push(message.text);
+        await chrome.storage.local.set({ thoughtBuffer: result.thoughtBuffer });
+        sendResponse({ success: true });
+      } catch (err) {
+        sendResponse({ success: false });
+      }
+    })();
+    return true;
   }
 });

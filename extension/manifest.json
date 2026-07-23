@@ -1,16 +1,17 @@
 {
   "manifest_version": 3,
   "name": "ThoughtStream Capture",
-  "version": "1.0",
+  "version": "1.2",
   "description": "Capture quick thoughts and notes and sync them to your local ThoughtStream board.",
   "permissions": [
     "sidePanel",
     "storage",
-    "tabs"
+    "tabs",
+    "activeTab"
   ],
   "host_permissions": [
-    "http://localhost/*",
-    "https://www.youtube.com/*"
+    "http://*/*",
+    "https://*/*"
   ],
   "background": {
     "service_worker": "background.js"
@@ -24,12 +25,21 @@
   },
   "content_scripts": [
     {
-      "matches": ["http://localhost/*"],
+      "matches": ["http://*/*", "https://*/*"],
       "js": ["content.js"],
       "run_at": "document_end"
     }
   ],
   "action": {
-    "default_title": "Open ThoughtStream Capture"
+    "default_title": "ThoughtStream Capture"
+  },
+  "commands": {
+    "toggle-overlay": {
+      "suggested_key": {
+        "default": "Alt+Shift+T",
+        "mac": "Alt+Shift+T"
+      },
+      "description": "Toggle ThoughtStream Floating Glass Overlay"
+    }
   }
 }
