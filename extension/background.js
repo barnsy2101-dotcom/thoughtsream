@@ -1,17 +1,6 @@
 // background.js - ThoughtStream Capture Extension Service Worker
 
-// 1. Handle Side Panel Opening (Chrome/Brave/Edge)
-if (typeof chrome !== 'undefined' && chrome.sidePanel) {
-  chrome.action.onClicked.addListener(async (tab) => {
-    try {
-      await chrome.sidePanel.open({ windowId: tab.windowId });
-    } catch (err) {
-      console.log('Side panel fallback or opening handled by browser.');
-    }
-  });
-}
-
-// 2. Handle Keyboard Shortcut (Alt+Shift+T) to toggle Floating In-Page Overlay
+// 1. Handle Keyboard Shortcut (Alt+Shift+T) to toggle Floating In-Page Overlay
 chrome.commands.onCommand.addListener((command) => {
   if (command === 'toggle-overlay') {
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
@@ -22,7 +11,7 @@ chrome.commands.onCommand.addListener((command) => {
   }
 });
 
-// 3. Handle Storage Buffer & Syncing
+// 2. Handle Storage Buffer & Syncing
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'GET_BUFFER') {
     (async () => {
