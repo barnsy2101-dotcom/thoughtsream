@@ -219,6 +219,51 @@
       font-variant-numeric: tabular-nums;
     }
 
+    .target-select {
+      background: transparent;
+      color: var(--text-muted);
+      border: none;
+      font-size: 11px;
+      font-weight: 500;
+      outline: none;
+      cursor: pointer;
+      appearance: none;
+      -webkit-appearance: none;
+      padding-right: 12px;
+      background-image: url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2210%22%20height%3D%2210%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22%23A3A3A3%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpolyline%20points%3D%226%209%2012%2015%2018%209%22%3E%3C%2Fpolyline%3E%3C%2Fsvg%3E");
+      background-repeat: no-repeat;
+      background-position: right center;
+      background-size: 10px;
+    }
+    
+    .target-select:hover {
+      color: var(--text);
+    }
+    
+    .target-select option {
+      background: #1e1e1e;
+      color: #eaeaea;
+    }
+
+    .context-pill {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 10px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 8px;
+      margin-top: -4px;
+    }
+    
+    .context-title {
+      font-size: 11px;
+      color: var(--text-muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
     button {
       background: #EAEAEA;
       color: #121212;
@@ -310,14 +355,22 @@
 </head>
 <body>
   <header>
-    <div class="brand">
-      <!-- SparkIcon / Lightning bolt -->
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" style="margin-top: -1px;">
-        <path d="M11 21h-1l1-7H7.5c-.88 0-.34-.9.34-1.9L13 3h1l-1 7h3.5c.88 0 .34.9-.34 1.9L11 21z"/>
-      </svg>
-      ThoughtStream
+    <div style="display: flex; flex-direction: column; gap: 4px;">
+      <div class="brand">
+        <!-- SparkIcon / Lightning bolt -->
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" style="margin-top: -1px;">
+          <path d="M11 21h-1l1-7H7.5c-.88 0-.34-.9.34-1.9L13 3h1l-1 7h3.5c.88 0 .34.9-.34 1.9L11 21z"/>
+        </svg>
+        ThoughtStream
+      </div>
+      <div class="stream-selector">
+        <select id="stream-target" class="target-select">
+          <option value="stream_today" id="opt-today">Today's Stream</option>
+          <option value="new">+ New Stream</option>
+        </select>
+      </div>
     </div>
-    <div id="status" class="status">
+    <div id="status" class="status" style="align-self: flex-start;">
       <span class="status-dot"></span>
       <span id="status-text">Connecting</span>
     </div>
@@ -337,6 +390,13 @@
 
   <div class="input-card">
     <textarea id="note-input" placeholder="Capture a thought as you watch..." maxlength="280" autofocus></textarea>
+    
+    <!-- Context Pill -->
+    <div id="context-pill" class="context-pill" style="display: none;">
+      <img id="context-favicon" src="" alt="favicon" width="14" height="14" style="border-radius: 2px;" />
+      <span id="context-title" class="context-title"></span>
+    </div>
+
     <div class="footer-row">
       <div id="char-count" class="char-count">0 / 280</div>
       <button id="add-btn">

@@ -9,7 +9,53 @@ const logList = document.getElementById('log-list');
 const opacitySlider = document.getElementById('opacity-slider');
 const opacityVal = document.getElementById('opacity-val');
 
+const contextPill = document.getElementById('context-pill');
+const contextFavicon = document.getElementById('context-favicon');
+const contextTitle = document.getElementById('context-title');
+const streamTarget = document.getElementById('stream-target');
+const optToday = document.getElementById('opt-today');
+
 let recentNotes = [];
+let activeTabContext = { url: '', title: '', favIconUrl: '' };
+
+if (optToday) {
+  const dateStr = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  optToday.innerText = `Stream: ${dateStr}`;
+}
+
+async function updateActiveTabContext() {
+  if (!chrome || !chrome.tabs) return;
+  try {
+    const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (tabs && tabs[0]) {
+      const tab = tabs[0];
+      activeTabContext = {
+        url: tab.url || '',
+        title: tab.title || '',
+        favIconUrl: tab.favIconUrl || ''
+      };
+      
+      if (contextPill && activeTabContext.url && !activeTabContext.url.startsWith('chrome://') && !activeTabContext.url.startsWith('edge://')) {
+        contextPill.style.display = 'flex';
+        contextFavicon.src = activeTabContext.favIconUrl || '';
+        contextFavicon.style.display = activeTabContext.favIconUrl ? 'block' : 'none';
+        contextTitle.innerText = activeTabContext.title || activeTabContext.url;
+      } else if (contextPill) {
+        contextPill.style.display = 'none';
+      }
+    }
+  } catch (err) {
+    console.error('Failed to get active tab:', err);
+  }
+}
+
+if (chrome && chrome.tabs) {
+  chrome.tabs.onActivated.addListener(updateActiveTabContext);
+  chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+    if (tab.active) updateActiveTabContext();
+  });
+}
+updateActiveTabContext();
 
 // 0. Panel Transparency Control
 function updatePanelOpacity(percent) {
@@ -63,23 +109,37 @@ async function submitNote() {
 
   const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
   let noteState = 'buffered';
+  
+  const targetStreamId = streamTarget ? streamTarget.value : 'stream_today';
+
+  const payload = {
+    id: "node_" + Date.now(),
+    text: text,
+    timestamp: Date.now(),
+    targetStreamId: targetStreamId,
+    metadata: {
+      url: activeTabContext.url,
+      title: activeTabContext.title,
+      favicon: activeTabContext.favIconUrl
+    }
+  };
 
   try {
     // Check if there is an active localhost tab running ThoughtStream
-    const tabs = await chrome.tabs.query({ url: 'http://localhost/*/*' });
-    const localTab = tabs.find(t => t.url && t.url.includes('localhost'));
+    const tabs = await chrome.tabs.query({});
+    const localTab = tabs.find(t => (t.url && (t.url.includes('localhost') || t.url.includes('127.0.0.1'))) || (t.url && t.url.startsWith('file:') && t.url.includes('index.html')));
 
     if (localTab) {
       // Send the thought directly to the open tab
       await chrome.tabs.sendMessage(localTab.id, {
         type: 'ADD_THOUGHT_EXTERNAL',
-        text: text
+        payload: payload
       });
       noteState = 'synced';
     } else {
       // Buffer the thought locally in storage
       const result = await chrome.storage.local.get({ thoughtBuffer: [] });
-      result.thoughtBuffer.push(text);
+      result.thoughtBuffer.push(payload);
       await chrome.storage.local.set({ thoughtBuffer: result.thoughtBuffer });
       noteState = 'buffered';
     }
@@ -88,7 +148,7 @@ async function submitNote() {
     // Fallback: save to storage buffer
     try {
       const result = await chrome.storage.local.get({ thoughtBuffer: [] });
-      result.thoughtBuffer.push(text);
+      result.thoughtBuffer.push(payload);
       await chrome.storage.local.set({ thoughtBuffer: result.thoughtBuffer });
     } catch (e) {
       console.error('Failed to write to fallback storage:', e);
@@ -97,26 +157,50 @@ async function submitNote() {
   }
 
   // Prepend to recent list
+  // Save & Prepend to recent list
   recentNotes.unshift({ text, time: timestamp, state: noteState });
   if (recentNotes.length > 50) recentNotes.pop();
+  if (chrome && chrome.storage && chrome.storage.local) {
+    chrome.storage.local.set({ recentNotesHistory: recentNotes });
+  }
 
   renderLog();
   updateStatus();
 }
 
-// 4. Update Status Indicators
+// Load initial log history from storage
+if (chrome && chrome.storage && chrome.storage.local) {
+  chrome.storage.local.get({ recentNotesHistory: [] }, (res) => {
+    if (res.recentNotesHistory && res.recentNotesHistory.length > 0) {
+      recentNotes = res.recentNotesHistory;
+      renderLog();
+    }
+  });
+}
+
+// 4. Update Status Indicators & Auto-flush Log Statuses
 async function updateStatus() {
   try {
-    const tabs = await chrome.tabs.query({ url: 'http://localhost/*/*' });
-    const localTab = tabs.find(t => t.url && t.url.includes('localhost'));
+    const tabs = await chrome.tabs.query({});
+    const localTab = tabs.find(t => (t.url && (t.url.includes('localhost') || t.url.includes('127.0.0.1'))) || (t.url && t.url.startsWith('file:') && t.url.includes('index.html')));
+
+    // Check buffer state
+    const result = await chrome.storage.local.get({ thoughtBuffer: [] });
+    const count = result.thoughtBuffer.length;
+
+    // If buffer is empty (meaning all buffered thoughts were pulled into the canvas), mark any buffered log items as Synced!
+    if (count === 0 && recentNotes.some(n => n.state === 'buffered')) {
+      recentNotes.forEach(n => { n.state = 'synced'; });
+      if (chrome && chrome.storage && chrome.storage.local) {
+        chrome.storage.local.set({ recentNotesHistory: recentNotes });
+      }
+      renderLog();
+    }
 
     if (localTab) {
       statusEl.className = 'status connected';
       statusText.innerText = 'Connected';
     } else {
-      // Get buffer count to show in status
-      const result = await chrome.storage.local.get({ thoughtBuffer: [] });
-      const count = result.thoughtBuffer.length;
       statusEl.className = 'status';
       statusText.innerText = count > 0 ? `${count} buffered` : 'Offline';
     }

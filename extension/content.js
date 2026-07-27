@@ -5,28 +5,38 @@
   if (window.__thoughtstream_content_loaded) return;
   window.__thoughtstream_content_loaded = true;
 
-  const isLocalhostApp = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+  const isLocalhostApp = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || (window.location.protocol === 'file:' && window.location.pathname.includes('index.html'));
 
   // ==========================================
   // 1. Localhost App Sync Receiver
   // ==========================================
   if (isLocalhostApp) {
-    // Fetch buffered thoughts on page load
-    chrome.runtime.sendMessage({ type: 'GET_BUFFER' }, (response) => {
-      if (response && Array.isArray(response.thoughts) && response.thoughts.length > 0) {
-        window.postMessage({
-          type: 'ADD_THOUGHT_EXTERNAL_BATCH',
-          thoughts: response.thoughts
-        }, '*');
+    const fetchBuffer = () => {
+      // Fetch buffered thoughts
+      chrome.runtime.sendMessage({ type: 'GET_BUFFER' }, (response) => {
+        if (response && Array.isArray(response.thoughts) && response.thoughts.length > 0) {
+          window.postMessage({
+            type: 'ADD_THOUGHT_EXTERNAL_BATCH',
+            thoughts: response.thoughts
+          }, '*');
+        }
+      });
+    };
+
+    fetchBuffer(); // On load
+
+    // Auto-pull when new thoughts are buffered from other tabs or sidepanel
+    chrome.storage.onChanged.addListener((changes, namespace) => {
+      if (namespace === 'local' && changes.thoughtBuffer && changes.thoughtBuffer.newValue && changes.thoughtBuffer.newValue.length > 0) {
+        fetchBuffer();
       }
     });
 
-    // Relay runtime messages to window postMessage
     chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       if (message.type === 'ADD_THOUGHT_EXTERNAL') {
         window.postMessage({
           type: 'ADD_THOUGHT_EXTERNAL',
-          text: message.text
+          payload: message.payload || message.text
         }, '*');
         sendResponse({ success: true });
       }
@@ -47,7 +57,9 @@
 
     hostEl = document.createElement('div');
     hostEl.id = 'thoughtstream-overlay-host';
-    hostEl.style.cssText = 'position: absolute; top: 0; left: 0; width: 0; height: 0; z-index: 2147483647; pointer-events: none;';
+    // Trick host pages (like YouTube) into ignoring keystrokes by making the host element look editable
+    hostEl.contentEditable = 'true';
+    hostEl.style.cssText = 'position: absolute; top: 0; left: 0; width: 0; height: 0; z-index: 2147483647; pointer-events: none; outline: none; caret-color: transparent;';
     
     shadowRoot = hostEl.attachShadow({ mode: 'open' });
 
@@ -348,7 +360,14 @@
     overlayInput.addEventListener('input', () => {
       charCount.innerText = `${overlayInput.value.length} / 280`;
     });
+    
+    // Stop key events from bubbling to the host page (prevents triggering site shortcuts like YouTube's 't' for theater mode)
+    const stopPropagation = (e) => e.stopPropagation();
+    overlayInput.addEventListener('keyup', stopPropagation);
+    overlayInput.addEventListener('keypress', stopPropagation);
+    
     overlayInput.addEventListener('keydown', (e) => {
+      e.stopPropagation();
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
         handleOverlaySubmit();
@@ -437,13 +456,27 @@
 
       // Save / Sync Note
       let noteState = 'buffered';
+      const targetStreamId = 'stream_today';
+
+      const payload = {
+        id: "node_" + Date.now(),
+        text: text,
+        timestamp: Date.now(),
+        targetStreamId: targetStreamId,
+        metadata: {
+          url: window.location.href,
+          title: document.title,
+          favicon: document.querySelector('link[rel="icon"]')?.href || document.querySelector('link[rel="shortcut icon"]')?.href || ''
+        }
+      };
+
       try {
         if (isLocalhostApp) {
-          window.postMessage({ type: 'ADD_THOUGHT_EXTERNAL', text }, '*');
+          window.postMessage({ type: 'ADD_THOUGHT_EXTERNAL', payload }, '*');
           noteState = 'synced';
         } else {
           // Check runtime buffer
-          chrome.runtime.sendMessage({ type: 'BUFFER_THOUGHT', text });
+          chrome.runtime.sendMessage({ type: 'BUFFER_THOUGHT', text: payload });
           noteState = 'buffered';
         }
       } catch (err) {
