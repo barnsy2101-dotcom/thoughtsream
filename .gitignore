@@ -1,0 +1,21 @@
+# Dependencies
+node_modules/
+dist/
+
+# OS / Editor files
+.DS_Store
+*.log
+dev.log
+server.pid
+
+# Temporary patches and backups
+*.patch
+*.orig
+scratch/
+.agents/
+check.jsx
+test_*.py
+test_*.js
+test_*.mjs
+app.html
+old_index.html
