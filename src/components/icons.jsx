@@ -38,3 +38,5 @@ export const PinIcon     = (p) => <Icon {...p} d={<><path d="M12 17v5"/><path d=
 export const MsgIcon     = (p) => <Icon {...p} d={<path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/>} />;
 export const ClockIcon   = (p) => <Icon {...p} d={<><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></>} />;
 export const MagnetIcon  = (p) => <Icon {...p} d={<><path d="m6 15-3-3 6.7-6.7a6 6 0 0 1 8.5 0l4.2 4.2a6 6 0 0 1 0 8.5L15 21l-3-3"/><path d="m9 18 3 3"/><path d="m14 7 3 3"/></>} />;
+export const ChevronDownIcon = (p) => <Icon {...p} d={<path d="m6 9 6 6 6-6"/>} />;
+

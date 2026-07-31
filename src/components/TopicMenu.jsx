@@ -24,7 +24,10 @@ export function TopicMenu({ topics, nodes, createTopic }) {
   };
 
   return (
-    <div className="glass absolute bottom-full mb-2 left-2 rounded-2xl p-1.5 w-64 z-50 animate-pop-in" onPointerDown={e => e.stopPropagation()}>
+    <div className="bg-neutral-900/95 backdrop-blur-md border border-neutral-700/80 shadow-2xl absolute bottom-full mb-2 left-2 rounded-2xl p-1.5 w-64 z-50 animate-pop-in select-none pointer-events-auto" 
+      onPointerDown={e => e.stopPropagation()}
+      onClick={e => e.stopPropagation()}
+      onDoubleClick={e => e.stopPropagation()}>
       <button type="button" onClick={() => { setActiveTopic(null); setTopicMenuOpen(false); }}
         className={'ghost-btn w-full text-left text-[13px] rounded-xl px-3 py-2 flex items-center gap-2 ' + (!activeTopic ? 'text-neutral-100 font-semibold' : 'text-neutral-300')}>
         <span className="w-2 h-2 rounded-full shrink-0" style={{ background: activeTopic ? 'transparent' : TOPIC_ACCENT, border: '1px solid ' + TOPIC_ACCENT }} />

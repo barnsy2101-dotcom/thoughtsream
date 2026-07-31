@@ -57,3 +57,4 @@ export const LS_CURRENT = 'thoughtstream_current';
 export const LS_APIKEY = 'thoughtstream_api_key';
 export const LS_HISTORY = 'thoughtstream_history';
 export const LS_LAST_ACTIVE = 'thoughtstream_last_active';
+export const LS_PROJECTS = 'thoughtstream_projects';

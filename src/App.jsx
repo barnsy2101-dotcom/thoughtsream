@@ -1,16 +1,18 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 
 
+
+
 import { COLORS, CATEGORIES, STOP, TEMPLATES, LS_SESSIONS, LS_CURRENT, LS_APIKEY, LS_HISTORY, LS_LAST_ACTIVE, ACCENT, TOPIC_ACCENT } from './utils/constants';
 import { uid, pairKey, clamp, keywords, topicOf, nodeRadius, formatTime } from './utils/helpers';
 import { fitViewForNodes, applyCollisions, applyLinkForces, applyTopicGravity, integrateVelocities } from './utils/physics';
-import { loadStore, saveStore, blankWorld, pickNode, serializeWorld, hydrateNode } from './utils/storage';
+import { loadStore, saveStore, blankWorld, pickNode, serializeWorld, hydrateNode, createProject, loadProjects, saveProjects } from './utils/storage';
 
 import { 
   ZapIcon, AlarmIcon, SendIcon, PlusIcon, MinusIcon, LibraryIcon, XIcon, 
   TrashIcon, LinkIcon, CopyIcon, SparkIcon, CheckIcon, UndoIcon, RedoIcon, 
   FitIcon, SearchIcon, MicIcon, PlayIcon, GearIcon, DownloadIcon, FoldIcon, 
-  UnfoldIcon, ZapIcon_, PinIcon, MsgIcon, ClockIcon, MagnetIcon 
+  UnfoldIcon, ZapIcon_, PinIcon, MsgIcon, ClockIcon, MagnetIcon, ChevronDownIcon 
 } from './components/icons';
 
 import { useStore } from './store/useStore';
@@ -21,13 +23,14 @@ import { EditThoughtModal } from './components/EditThoughtModal';
 import { Toolbar } from './components/Toolbar';
 import { TimerMenu } from './components/TimerMenu';
 import { HeaderMenu } from './components/HeaderMenu';
+import { ExportSidebar } from './components/ExportSidebar';
 
 
 
 
 const renderCanvasDOM = (w, v, hidden, q, held, els) => {
-  const { nodes, links, suggestions } = w;
-  const { worldElRef, bgRef, nodeEls, zoneEls, pathEls, hitEls, labelEls, badgeEls, suggCardRef, linkCardRef, previewRef, threadLineRef } = els;
+  const { nodes, links } = w;
+  const { worldElRef, bgRef, nodeEls, zoneEls, pathEls, hitEls, labelEls, badgeEls, linkCardRef, previewRef, threadLineRef } = els;
   
   if (worldElRef.current) worldElRef.current.style.transform = `translate(${v.x}px, ${v.y}px) scale(${v.s})`;
   if (bgRef.current) {
@@ -44,11 +47,10 @@ const renderCanvasDOM = (w, v, hidden, q, held, els) => {
     }
   }
 
-  // Hide DOM elements for links/suggestions that no longer exist
+  // Hide DOM elements for links that no longer exist
   const activeLinkIds = new Set((links || []).map(l => l.id));
-  const activeSuggIds = new Set((suggestions || []).map(s => s.id));
   for (const id in pathEls.current) {
-    if (!activeLinkIds.has(id) && !activeSuggIds.has(id)) {
+    if (!activeLinkIds.has(id)) {
       if (pathEls.current[id]) pathEls.current[id].style.display = 'none';
       if (hitEls.current[id]) hitEls.current[id].style.display = 'none';
       if (labelEls.current[id]) labelEls.current[id].style.display = 'none';
@@ -89,33 +91,30 @@ const renderCanvasDOM = (w, v, hidden, q, held, els) => {
     zel.style.width = zel.style.height = (maxMemberR * 2) + 'px';
     zel.style.transform = `translate(${n.x}px, ${n.y}px) translate(-50%, -50%)`;
   }
-  const curve = (a, b) => {
+  const curve = (a, b, isArrow) => {
     const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
     const dx = b.x - a.x, dy = b.y - a.y;
     const d = Math.hypot(dx, dy) || 1;
     const off = Math.min(d * 0.14, 46);
-    return `M ${a.x} ${a.y} Q ${mx - dy / d * off} ${my + dx / d * off} ${b.x} ${b.y}`;
+
+    let bx = b.x, by = b.y;
+    if (isArrow) {
+      // Pull the endpoint back ~38px along the straight direction so arrow sits outside node
+      const pullback = 38;
+      bx = b.x - (dx / d) * pullback;
+      by = b.y - (dy / d) * pullback;
+    }
+
+    return `M ${a.x} ${a.y} Q ${mx - dy / d * off} ${my + dx / d * off} ${bx} ${by}`;
   };
   const byId = (id) => nodes.find(n => n.id === id);
   for (const l of (links || [])) {
     const a = byId(l.a), b = byId(l.b);
     const vis = a && b && !hidden.has(a.id) && !hidden.has(b.id);
     const el = pathEls.current[l.id], hit = hitEls.current[l.id], lab = labelEls.current[l.id];
-    if (el) { el.style.display = vis ? '' : 'none'; if (vis) el.setAttribute('d', curve(a, b)); }
-    if (hit) { hit.style.display = vis ? '' : 'none'; if (vis) hit.setAttribute('d', curve(a, b)); }
+    if (el) { el.style.display = vis ? '' : 'none'; if (vis) el.setAttribute('d', curve(a, b, l.isArrow)); }
+    if (hit) { hit.style.display = vis ? '' : 'none'; if (vis) hit.setAttribute('d', curve(a, b, l.isArrow)); }
     if (lab) { lab.style.display = vis && l.label ? '' : 'none'; if (vis) lab.style.transform = `translate(${(a.x + b.x) / 2}px, ${(a.y + b.y) / 2 + 10}px) translate(-50%, -50%)`; }
-  }
-  for (const s of (suggestions || [])) {
-    const a = byId(s.a), b = byId(s.b);
-    const vis = a && b && !hidden.has(a.id) && !hidden.has(b.id) && useStore.getState().replayIdx === null && !useStore.getState().pureDump;
-    const el = pathEls.current[s.id], badge = badgeEls.current[s.id];
-    if (el) { el.style.display = vis ? '' : 'none'; if (vis) el.setAttribute('d', curve(a, b)); }
-    if (badge) { badge.style.display = vis ? '' : 'none'; if (vis) badge.style.transform = `translate(${(a.x + b.x) / 2}px, ${(a.y + b.y) / 2}px) translate(-50%, -50%)`; }
-  }
-  if (useStore.getState().activeSugg && suggCardRef.current) {
-    const s = suggestions.find(x => x.id === useStore.getState().activeSugg);
-    const a = s && byId(s.a), b = s && byId(s.b);
-    if (a && b) suggCardRef.current.style.transform = `translate(${(a.x + b.x) / 2}px, ${(a.y + b.y) / 2 + 26}px) translate(-50%, 0)`;
   }
   if (useStore.getState().activeLink && linkCardRef.current) {
     const l = links.find(x => x.id === useStore.getState().activeLink);
@@ -186,8 +185,6 @@ function App() {
   const setDrawerOpen = useStore(s => s.setDrawerOpen);
   const modalId = useStore(s => s.modalId);
   const setModalId = useStore(s => s.setModalId);
-  const activeSugg = useStore(s => s.activeSugg);
-  const setActiveSugg = useStore(s => s.setActiveSugg);
   const activeLink = useStore(s => s.activeLink);
   const setActiveLink = useStore(s => s.setActiveLink);
   const linkFrom = useStore(s => s.linkFrom);
@@ -195,6 +192,8 @@ function App() {
   const input = useStore(s => s.input);
   const setInput = useStore(s => s.setInput);
   const [sessionsRev, setSessionsRev] = useState(0);
+  const [slashQuery, setSlashQuery] = useState(null);
+  const [slashIndex, setSlashIndex] = useState(0);
   const query = useStore(s => s.query);
   const setQuery = useStore(s => s.setQuery);
   const selIds = useStore(s => s.selIds);
@@ -211,6 +210,9 @@ function App() {
   const setMenuOpen = useStore(s => s.setMenuOpen);
   const exportOpen = useStore(s => s.exportOpen);
   const setExportOpen = useStore(s => s.setExportOpen);
+  const exportSidebarOpen = useStore(s => s.exportSidebarOpen);
+  const setExportSidebarOpen = useStore(s => s.setExportSidebarOpen);
+  const setDraftOutline = useStore(s => s.setDraftOutline);
   const aiBusy = useStore(s => s.aiBusy);
   const setAiBusy = useStore(s => s.setAiBusy);
   const aiNote = useStore(s => s.aiNote);
@@ -300,11 +302,39 @@ function App() {
   const setCustomTime = useStore(s => s.setCustomTime);
 
     useEffect(() => { useStore.getState().hoveredPullTopicId = hoveredPullTopicId; }, [hoveredPullTopicId]);
+  const [hoveredSuggThoughtIds, setHoveredSuggThoughtIds] = useState(null);
+
+  const [moveTopicMenuOpen, setMoveTopicMenuOpen] = useState(false);
+
+  const transferSelectedToTopic = (targetTopicId, targetColor) => {
+    const selectedIds = useStore.getState().selIds;
+    w.nodes.forEach(n => {
+      if (selectedIds.has(n.id) && !n.isTopic && !n.isHub) {
+        n.topicId = targetTopicId || null;
+        if (targetTopicId && targetColor !== undefined) {
+          n.color = targetColor;
+        }
+      }
+    });
+    worldRef.current.updated = Date.now();
+    bump();
+    persist();
+    setMoveTopicMenuOpen(false);
+    setSelIds(new Set());
+  };
+
   const pullTetherGroupRef = useRef(null);
   const sourceTetherGroupRef = useRef(null);
 
   const unexportedArchiveAlert = useStore(s => s.unexportedArchiveAlert);
   const setUnexportedArchiveAlert = useStore(s => s.setUnexportedArchiveAlert);
+
+  /** Return keyboard focus to the main thought input after closing any modal/overlay. */
+  const focusInput = useCallback(() => {
+    requestAnimationFrame(() => {
+      document.getElementById('thought-input')?.focus();
+    });
+  }, []);
 
   const worldRef = useRef(null);
   if (!worldRef.current) {
@@ -312,9 +342,10 @@ function App() {
     let cur = localStorage.getItem(LS_CURRENT);
     const todayStr = new Date().toISOString().split('T')[0];
     const lastActive = localStorage.getItem(LS_LAST_ACTIVE);
+    const ENABLE_DAILY_ROLLOVER = false;
 
     // Perform Daily Rollover
-    if (lastActive && lastActive !== todayStr) {
+    if (ENABLE_DAILY_ROLLOVER && lastActive && lastActive !== todayStr) {
       if (cur && store[cur] && store[cur].nodes && store[cur].nodes.length > 0) {
         let history = JSON.parse(localStorage.getItem(LS_HISTORY) || '[]');
         const lastDateObj = new Date(lastActive);
@@ -340,7 +371,7 @@ function App() {
 
     if (cur && store[cur]) {
       const s = store[cur];
-      worldRef.current = { ...blankWorld(), ...s, suggestions: [], rejected: s.rejected || [] };
+      worldRef.current = { ...blankWorld(), ...s };
       worldRef.current.nodes = worldRef.current.nodes.map(hydrateNode);
       worldRef.current.nodes.forEach(n => { n.r = nodeRadius(n); });
     } else {
@@ -351,6 +382,12 @@ function App() {
       localStorage.setItem(LS_CURRENT, worldRef.current.id);
     }
   }
+
+  // Explicit React state for the active world ID — ensures React re-renders Header,
+  // empty state, and sidebar synchronously on every canvas switch.
+  const [activeWorldId, setActiveWorldId] = useState(() =>
+    worldRef.current ? worldRef.current.id : null
+  );
 
   const viewRef = useRef(fitViewForNodes(worldRef.current ? worldRef.current.nodes : []));
   const containerRef = useRef(null);
@@ -395,9 +432,9 @@ function App() {
   const redoStack = useRef([]);
   const recRef = useRef(null);
   useEffect(() => { useStore.getState().linkFrom = linkFrom; }, [linkFrom]);
-  useEffect(() => { useStore.getState().activeSugg = activeSugg; }, [activeSugg]);
   useEffect(() => { useStore.getState().activeLink = activeLink; }, [activeLink]);
   useEffect(() => { useStore.getState().selIds = selIds; }, [selIds]);
+  useEffect(() => { document.documentElement.setAttribute('data-theme', theme); }, [theme]);
   useEffect(() => { useStore.getState().query = query.trim().toLowerCase(); }, [query]);
   useEffect(() => { useStore.getState().replayIdx = replayIdx; }, [replayIdx]);
   useEffect(() => { useStore.getState().apiKey = apiKey; }, [apiKey]);
@@ -424,10 +461,8 @@ function App() {
     w.nodes = data.nodes.map(hydrateNode);
     w.nodes.forEach(n => { n.r = nodeRadius(n); });
     w.links = data.links;
-    w.rejected = data.rejected;
-    w.suggestions = [];
     w.updated = Date.now();
-    setModalId(null); setActiveSugg(null); setActiveLink(null); setSelIds(new Set()); setTargetId(null);
+    setModalId(null); setActiveLink(null); setSelIds(new Set()); setTargetId(null);
     bump();
   };
   const undo = useCallback(() => {
@@ -460,6 +495,8 @@ function App() {
     name = (name || '').trim();
     if (!name) return null;
     const w = worldRef.current;
+    const existing = w.nodes.find(n => (n.isTopic || n.isHub) && n.title && n.title.toLowerCase() === name.toLowerCase());
+    if (existing) return existing;
     pushUndo();
     const spawn = screenToWorld(window.innerWidth / 2 + (Math.random() * 120 - 60), window.innerHeight * 0.42);
     const t = {
@@ -477,7 +514,7 @@ function App() {
     return t;
   }, []);
 
-  const toggleVacuumPreview = useCallback((topicNode) => {
+  const toggleVacuumPreview = useCallback(async (topicNode) => {
     if (useStore.getState().vacuumTopicId === topicNode.id) {
       setVacuumTopicId(null);
       setVacuumSelectedIds(new Set());
@@ -485,11 +522,14 @@ function App() {
     }
     const w = worldRef.current;
     const loose = w.nodes.filter(n => !n.isTopic && !n.isHub && !n.topicId && n.text.trim());
+    if (loose.length === 0) return;
+
     const topTitle = (topicNode.title || '').toLowerCase();
     const topKws = keywords(topicNode.title || '');
     const catKws = CATEGORIES[topicNode.title] || [];
     
-    const matches = new Set();
+    // Fast keyword & category matching
+    const fastMatches = new Set();
     for (const n of loose) {
       const textLower = n.text.toLowerCase();
       const tKws = keywords(n.text);
@@ -500,24 +540,51 @@ function App() {
       const isKwMatch = topKws.length > 0 && topKws.some(k => tKws.includes(k));
       const isCatMatch = catKws.length > 0 && catKws.some(k => tKws.some(tk => tk.includes(k) || k.includes(tk)));
       
-      // Viewport visibility check
-      const v = viewRef.current;
-      const screenX = n.x * v.s + v.x;
-      const screenY = n.y * v.s + v.y;
-      
-      const isVisibleOnScreen = 
-        screenX >= 0 && 
-        screenX <= window.innerWidth && 
-        screenY >= 0 && 
-        screenY <= window.innerHeight;
-      
-      if (isDirectMatch || isTopicOfMatch || isKwMatch || isCatMatch || isVisibleOnScreen) {
-        matches.add(n.id);
+      if (isDirectMatch || isTopicOfMatch || isKwMatch || isCatMatch) {
+        fastMatches.add(n.id);
       }
     }
     
     setVacuumTopicId(topicNode.id);
-    setVacuumSelectedIds(matches);
+    setVacuumSelectedIds(fastMatches);
+
+    // AI Semantic Matching if API key is set
+    const apiKey = useStore.getState().apiKey;
+    if (apiKey) {
+      try {
+        const prompt = `Topic: "${topicNode.title}"
+
+Analyze the following thoughts and determine which ones are semantically relevant to the topic "${topicNode.title}".
+
+Thoughts (id: text):
+${loose.map(n => `${n.id}: ${n.text}`).join('\n')}
+
+Rules:
+- Only include thought ids that actually relate to "${topicNode.title}".
+- EXCLUDE completely unrelated thoughts (e.g. daily logs vs tech topics).`;
+
+        const schema = {
+          type: 'object',
+          properties: {
+            matchingIds: {
+              type: 'array',
+              items: { type: 'string' }
+            }
+          },
+          required: ['matchingIds'],
+          additionalProperties: false
+        };
+
+        const res = await callAI(prompt, schema);
+        if (res && Array.isArray(res.matchingIds)) {
+          const validLooseIds = new Set(loose.map(l => l.id));
+          const aiMatches = new Set(res.matchingIds.filter(id => validLooseIds.has(id)));
+          setVacuumSelectedIds(aiMatches);
+        }
+      } catch (e) {
+        console.warn('Vacuum AI semantic check failed, using keyword matches:', e);
+      }
+    }
   }, []);
 
   const confirmVacuum = useCallback(() => {
@@ -555,11 +622,14 @@ function App() {
     setVacuumTopicId(null);
     setVacuumSelectedIds(new Set());
     bump();
+    persist();
+    document.getElementById('thought-input')?.focus();
   }, [pushUndo, bump]);
 
   const cancelVacuum = useCallback(() => {
     setVacuumTopicId(null);
     setVacuumSelectedIds(new Set());
+    document.getElementById('thought-input')?.focus();
   }, []);
 
   const executeManualPull = useCallback((targetTopicId) => {
@@ -590,15 +660,44 @@ function App() {
 
   const exportTopicMarkdown = useCallback((topicNode) => {
     const w = worldRef.current;
-    const children = w.nodes.filter(n => n.topicId === topicNode.id && !n.isTopic && !n.isHub);
-    let md = `### ${topicNode.title}\n`;
-    children.forEach(n => {
-      md += `- ${n.text}\n`;
-    });
-    navigator.clipboard.writeText(md).then(() => {
-      console.log('Copied raw markdown to clipboard');
-    });
-  }, []);
+    const children = w.nodes.filter(n => n.topicId === topicNode.id && !n.isTopic && !n.isHub && n.text?.trim());
+    setDraftOutline([{
+      id: topicNode.id,
+      title: topicNode.title || topicNode.text || 'Untitled Topic',
+      thoughts: children.map(n => n.text.trim()),
+      isUnsorted: false,
+    }]);
+    setExportSidebarOpen(true);
+  }, [setDraftOutline, setExportSidebarOpen]);
+
+  const handleExportMarkdownOutline = useCallback(() => {
+    const w = worldRef.current;
+    const topics = w.nodes.filter(n => n.isTopic);
+    const outline = [];
+
+    // Group thoughts under their topic
+    for (const topic of topics) {
+      const children = w.nodes.filter(n => !n.isTopic && !n.isHub && n.topicId === topic.id && n.text?.trim());
+      outline.push({
+        title: topic.title || topic.text || 'Untitled Topic',
+        thoughts: children.map(n => n.text.trim()),
+        isUnsorted: false,
+      });
+    }
+
+    // Collect unassigned thoughts
+    const unsorted = w.nodes.filter(n => !n.isTopic && !n.isHub && !n.topicId && n.text?.trim());
+    if (unsorted.length > 0) {
+      outline.push({
+        title: 'Unsorted',
+        thoughts: unsorted.map(n => n.text.trim()),
+        isUnsorted: true,
+      });
+    }
+
+    setDraftOutline(outline);
+    setExportSidebarOpen(true);
+  }, [setDraftOutline, setExportSidebarOpen]);
 
   /* ---------- thought creation ---------- */
   const addThought = useCallback((text, opts = {}) => {
@@ -686,14 +785,16 @@ function App() {
     w.nodes.push(n);
     const threadTarget = useStore.getState().targetId && byId(useStore.getState().targetId);
     if (threadTarget && threadTarget.id !== n.id) {
-      w.links.push({ id: uid(), a: threadTarget.id, b: n.id });
+      if (!(threadTarget.isTopic && n.topicId === threadTarget.id)) {
+        w.links.push({ id: uid(), a: threadTarget.id, b: n.id });
+      }
     }
-    if (n.isQuestion && !useStore.getState().targetId) setTargetId(n.id);
+    // if (n.isQuestion && !useStore.getState().targetId) setTargetId(n.id);
     spawnBurst(n.x, n.y);
     w.updated = Date.now();
     bump();
     clearTimeout(addThought._t);
-    addThought._t = setTimeout(() => runAI(), 2500);
+    addThought._t = setTimeout(() => runAI(), 8000);
     return n;
   }, []);
   useEffect(() => {
@@ -705,6 +806,7 @@ function App() {
     window.tsCreateTopic = (name) => createTopic(name);
     window.tsSetActiveTopic = (id) => setActiveTopic(id === undefined ? null : id);
 
+    /*
     const handleExtensionMessage = (e) => {
       if (e.data && e.data.type === 'ADD_THOUGHT_EXTERNAL') {
         const text = e.data.payload ? e.data.payload.text : e.data.text;
@@ -729,164 +831,143 @@ function App() {
     };
     window.addEventListener('message', handleExtensionMessage);
     return () => window.removeEventListener('message', handleExtensionMessage);
+    */
   }, [addThought, undo]);
 
   /* ---------- AI engine ---------- */
-  const applyAIResults = (connections, metaHubs) => {
-    const w = worldRef.current;
-    const taken = new Set([
-      ...w.links.map(l => pairKey(l.a, l.b)),
-      ...w.suggestions.map(s => s.type === 'pair' ? pairKey(s.a, s.b) : (s.title || '').toLowerCase()),
-      ...w.rejected,
-    ]);
-    let budget = 8 - w.suggestions.length;
-    let changed = false;
-
-    for (const hub of metaHubs) {
-      const members = hub.thoughtIds.map(byId).filter(Boolean);
-      if (members.length < 2) continue;
-      const key = hub.title.toLowerCase();
-      const existingHub = w.nodes.find(n => (n.isHub || n.isTopic) && n.title.toLowerCase() === key);
-      if (!taken.has(key) && budget > 0) {
-        w.suggestions.push({
-          id: uid(),
-          type: 'metaHub',
-          title: hub.title,
-          thoughtIds: members.map(m => m.id),
-          existingHubId: existingHub ? existingHub.id : null,
-          reason: `Group ${members.length} thoughts into '${hub.title}'`,
-        });
-        taken.add(key);
-        budget--;
-        changed = true;
-      }
-    }
-
-    for (const c of connections) {
-      if (budget <= 0) break;
-      const a = byId(c.fromId), b = byId(c.toId);
-      if (!a || !b || a.id === b.id) continue;
-      const k = pairKey(a.id, b.id);
-      if (taken.has(k)) continue;
-      w.suggestions.push({
-        id: uid(),
-        type: 'pair',
-        a: a.id,
-        b: b.id,
-        reason: c.reason,
-      });
-      taken.add(k);
-      budget--;
-      changed = true;
-    }
-    if (changed) { w.updated = Date.now(); bump(); }
-  };
-
   const simulateAI = () => {
     const w = worldRef.current;
     const thoughts = w.nodes.filter(n => !n.isTopic && !n.isHub && !n.topicId && n.text.trim());
-    const connections = [];
     const metaHubs = [];
-    const kwCache = new Map(thoughts.map(t => [t.id, keywords(t.text)]));
     const topic = new Map(thoughts.map(t => [t.id, topicOf(t.text)]));
 
     const byTopic = {};
     for (const t of thoughts) { const c = topic.get(t.id); if (c) (byTopic[c] = byTopic[c] || []).push(t.id); }
     for (const [cat, ids] of Object.entries(byTopic)) {
-      const hubExists = w.nodes.some(n => (n.isHub || n.isTopic) && n.title === cat);
-      if (ids.length >= 3 || (hubExists && ids.length >= 1)) metaHubs.push({ title: cat, thoughtIds: ids });
-    }
-
-    for (let i = 0; i < thoughts.length; i++) {
-      const ka = kwCache.get(thoughts[i].id), ca = topic.get(thoughts[i].id);
-      for (let j = i + 1; j < thoughts.length; j++) {
-        const kb = kwCache.get(thoughts[j].id), cb = topic.get(thoughts[j].id);
-        const shared = ka.filter(x => kb.includes(x));
-        let reason = null;
-        if (ca && ca === cb) reason = `Both about ${ca}`;
-        else if (shared.length >= 2) reason = `Shared focus: ${shared.slice(0, 2).join(', ')}`;
-        if (reason) connections.push({ fromId: thoughts[i].id, toId: thoughts[j].id, reason });
+      const existingHub = w.nodes.find(n => 
+        (n.isHub || n.isTopic) && n.title && n.title.toLowerCase() === cat.toLowerCase()
+      );
+      if (!existingHub && ids.length >= 5) {
+        metaHubs.push({ topicName: cat, thoughtIds: ids });
+      } else if (existingHub && ids.length >= 1) {
+        metaHubs.push({ topicName: existingHub.title, thoughtIds: ids });
       }
     }
-    applyAIResults(connections, metaHubs);
+    if (metaHubs.length > 0) {
+      useStore.getState().setAiTopicSuggestions(metaHubs.slice(0, 3));
+    }
   };
 
-  const callClaude = async (prompt, schema, maxTokens = 2048) => {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'x-api-key': useStore.getState().apiKey,
-        'anthropic-version': '2023-06-01',
-        'anthropic-dangerous-direct-browser-access': 'true',
-      },
-      body: JSON.stringify({
-        model: 'claude-opus-4-8',
-        max_tokens: maxTokens,
-        output_config: { format: { type: 'json_schema', schema } },
-        messages: [{ role: 'user', content: prompt }],
-      }),
-    });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error((err.error && err.error.message) || `API error ${res.status}`);
+  const callAI = async (prompt, schema, maxTokens = 2048) => {
+    const apiKey = useStore.getState().apiKey;
+    if (apiKey.startsWith('AIza') || apiKey.startsWith('AQ.')) {
+      const cleanSchema = JSON.parse(JSON.stringify(schema));
+      const removeExtra = (obj) => {
+        if (obj.additionalProperties !== undefined) delete obj.additionalProperties;
+        if (obj.properties) Object.values(obj.properties).forEach(removeExtra);
+        if (obj.items) removeExtra(obj.items);
+      };
+      removeExtra(cleanSchema);
+
+      const modelsToTry = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-flash-latest'];
+      let lastErr = null;
+      for (const model of modelsToTry) {
+        try {
+          const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              contents: [{ role: 'user', parts: [{ text: prompt }] }],
+              generationConfig: {
+                responseMimeType: 'application/json',
+                responseSchema: cleanSchema,
+                maxOutputTokens: maxTokens,
+              }
+            })
+          });
+          if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error((err.error && err.error.message) || `Gemini API error ${res.status}`);
+          }
+          const data = await res.json();
+          const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
+          return JSON.parse(text);
+        } catch (err) {
+          lastErr = err;
+          // If model is not found or unsupported, continue to try the next model
+          if (err.message && err.message.includes('not found')) continue;
+          throw err;
+        }
+      }
+      throw lastErr;
+    } else {
+      const res = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
+          'anthropic-dangerous-direct-browser-access': 'true',
+        },
+        body: JSON.stringify({
+          model: 'claude-3-5-sonnet-20241022',
+          max_tokens: maxTokens,
+          output_config: { format: { type: 'json_schema', schema } },
+          messages: [{ role: 'user', content: prompt }],
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error((err.error && err.error.message) || `API error ${res.status}`);
+      }
+      const data = await res.json();
+      const text = data.content.find(b => b.type === 'text');
+      return JSON.parse(text.text);
     }
-    const data = await res.json();
-    const text = data.content.find(b => b.type === 'text');
-    return JSON.parse(text.text);
   };
 
   const runAI = useCallback(async () => {
     if (useStore.getState().pureDump) return;
     const w = worldRef.current;
     const thoughts = w.nodes.filter(n => !n.isTopic && !n.isHub && !n.topicId && n.text.trim());
-    if (thoughts.length < 2 || w.suggestions.length >= 8) return;
+    if (thoughts.length < 2) return;
     if (!useStore.getState().apiKey) { simulateAI(); return; }
-    const hash = thoughts.map(t => t.id + t.text).join('|') + '#' + w.links.length + '#' + w.rejected.length;
+    const hash = thoughts.map(t => t.id + t.text).join('|');
     if (hash === lastAIHashRef.current || useStore.getState().aiBusy) return;
     useStore.getState().aiBusy = true; setAiBusy(true); setAiNote('');
     try {
-      const hubs = w.nodes.filter(n => n.isHub).map(n => ({ id: n.id, title: n.title }));
-      const linked = w.links.map(l => [l.a, l.b]);
-      const rejected = w.rejected.map(k => k.split('|'));
-      const prompt = `You are the synthesis engine inside a brainstorming canvas. Analyze these thoughts and suggest connections and thematic clusters.
+      const hubs = w.nodes
+        .filter(n => (n.isHub || n.isTopic) && n.title)
+        .map(n => ({ id: n.id, title: n.title }));
 
+      const prompt = `You are the synthesis engine inside a brainstorming canvas. Analyze these thoughts and suggest connections and thematic clusters.
 Thoughts (id: text):
 ${thoughts.map(t => `${t.id}: ${t.text}`).join('\n')}
-
-Existing cluster hubs: ${JSON.stringify(hubs)}
-Already-linked pairs (do not repeat): ${JSON.stringify(linked)}
-Rejected pairs (never suggest again): ${JSON.stringify(rejected)}
+Existing cluster hubs:
+${JSON.stringify(hubs)}
 
 Rules:
 - Suggest at most 5 new connections between genuinely related thoughts. Each reason must be one short, specific sentence (max 10 words).
-- Propose a metaHub only when 3+ thoughts share a clear theme not already covered by an existing hub. For an existing hub, you may list new matching thoughtIds under its exact title to attach them.
-- Only use thought ids from the list above. Quality over quantity — an empty list is fine.`;
+- NEW TOPICS: Propose a new topic ONLY when 5 or more unassigned thoughts share a strong theme NOT already covered by an existing hub.
+- EXISTING TOPICS: If 1 or more unassigned thoughts belong to an existing hub/topic title from the list above, list them under that EXACT existing title. NEVER invent a new or duplicate title for an existing topic.
+- Only use thought ids from the list above. Quality over quantity - an empty list is fine.`;
       const schema = {
         type: 'object',
         properties: {
-          connections: {
+          topics: {
             type: 'array',
             items: {
               type: 'object',
-              properties: { fromId: { type: 'string' }, toId: { type: 'string' }, reason: { type: 'string' } },
-              required: ['fromId', 'toId', 'reason'], additionalProperties: false,
-            },
-          },
-          metaHubs: {
-            type: 'array',
-            items: {
-              type: 'object',
-              properties: { title: { type: 'string' }, thoughtIds: { type: 'array', items: { type: 'string' } } },
-              required: ['title', 'thoughtIds'], additionalProperties: false,
+              properties: { topicName: { type: 'string' }, thoughtIds: { type: 'array', items: { type: 'string' } } },
+              required: ['topicName', 'thoughtIds'], additionalProperties: false,
             },
           },
         },
-        required: ['connections', 'metaHubs'], additionalProperties: false,
+        required: ['topics'], additionalProperties: false,
       };
-      const out = await callClaude(prompt, schema);
+      const out = await callAI(prompt, schema);
       lastAIHashRef.current = hash;
-      applyAIResults(out.connections || [], out.metaHubs || []);
+      useStore.getState().setAiTopicSuggestions((out.topics || []).slice(0, 3));
     } catch (e) {
       setAiNote(e.message.slice(0, 80));
       simulateAI();
@@ -895,7 +976,7 @@ Rules:
     }
   }, []);
   useEffect(() => {
-    const t = setInterval(() => runAI(), apiKey ? 20000 : 7000);
+    const t = setInterval(() => runAI(), apiKey ? 60000 : 7000);
     return () => clearInterval(t);
   }, [runAI, apiKey]);
 
@@ -940,7 +1021,7 @@ Rules:
     let ideas;
     try {
       if (useStore.getState().apiKey) {
-        const out = await callClaude(
+        const out = await callAI(
           `In a brainstorming session, the thought is: "${node.text}"${node.notes ? ` (notes: ${node.notes})` : ''}.
 Other thoughts on the canvas: ${worldRef.current.nodes.filter(n => !n.isHub && n.id !== node.id).slice(0, 20).map(n => n.text).join('; ')}
 Generate exactly 3 short, concrete follow-on ideas that develop this thought. Each under 12 words. No numbering.`,
@@ -972,14 +1053,13 @@ Generate exactly 3 short, concrete follow-on ideas that develop this thought. Ea
     bump();
   };
 
-  /* ---------- links & suggestions ---------- */
+  /* ---------- links ---------- */
   const createLink = (a, b, skipUndo) => {
     const w = worldRef.current;
     if (a === b) return;
     const k = pairKey(a, b);
     if (w.links.some(l => pairKey(l.a, l.b) === k)) return;
     if (!skipUndo) pushUndo();
-    w.suggestions = w.suggestions.filter(s => pairKey(s.a, s.b) !== k);
     w.links.push({ id: uid(), a, b });
     w.updated = Date.now();
     bump();
@@ -988,7 +1068,7 @@ Generate exactly 3 short, concrete follow-on ideas that develop this thought. Ea
     pushUndo();
     const w = worldRef.current;
     w.links = w.links.filter(l => l.id !== id);
-    setActiveLink(null); w.updated = Date.now(); bump();
+    setActiveLink(null); w.updated = Date.now(); bump(); persist();
   };
   const deleteNodes = (ids) => {
     pushUndo();
@@ -1001,11 +1081,20 @@ Generate exactly 3 short, concrete follow-on ideas that develop this thought. Ea
     });
     w.nodes = w.nodes.filter(n => !set.has(n.id));
     w.links = w.links.filter(l => !set.has(l.a) && !set.has(l.b));
-    w.suggestions = w.suggestions.filter(s => !set.has(s.a) && !set.has(s.b));
     w.nodes.forEach(n => { if (n.topicId && set.has(n.topicId)) n.topicId = null; });
     if (useStore.getState().activeTopic && set.has(useStore.getState().activeTopic)) setActiveTopic(null);
+
+    // Clean up AI topic suggestions if underlying thoughts no longer exist
+    const looseNodeIds = new Set(w.nodes.filter(n => !n.isTopic && !n.isHub && !n.topicId).map(n => n.id));
+    const currentSuggs = useStore.getState().aiTopicSuggestions;
+    if (currentSuggs.length > 0) {
+      useStore.getState().setAiTopicSuggestions(
+        currentSuggs.filter(sugg => sugg.thoughtIds && sugg.thoughtIds.some(id => looseNodeIds.has(id)))
+      );
+    }
+
     w.updated = Date.now();
-    setModalId(null); setSelIds(new Set()); bump();
+    setModalId(null); setSelIds(new Set()); bump(); persist();
   };
 
   /* ---------- collapse hubs ---------- */
@@ -1029,11 +1118,16 @@ Generate exactly 3 short, concrete follow-on ideas that develop this thought. Ea
   /* ---------- sessions ---------- */
   const persist = useCallback(() => {
     const w = worldRef.current;
-    if (!w.nodes.length && w.name === 'Untitled Stream') return;
+    if (!w) return;
     const store = loadStore();
     store[w.id] = {
-      id: w.id, name: w.name, updated: w.updated,
-      nodes: w.nodes.map(pickNode), links: w.links, rejected: w.rejected,
+      id: w.id,
+      projectId: w.projectId || null,
+      name: w.name || 'Untitled Canvas',
+      updated: w.updated || Date.now(),
+      nodes: w.nodes ? w.nodes.map(pickNode) : [],
+      links: w.links || [],
+      rejected: w.rejected || [],
     };
     saveStore(store);
     localStorage.setItem(LS_CURRENT, w.id);
@@ -1043,31 +1137,85 @@ Generate exactly 3 short, concrete follow-on ideas that develop this thought. Ea
     return () => clearInterval(t);
   }, [persist]);
 
+  // Returns a unique canvas name by appending a counter if a conflict exists
+  const getUniqueCanvasName = (desiredName, currentId = null) => {
+    const store = loadStore();
+    const existingNames = Object.values(store)
+      .filter(s => s.id !== currentId)
+      .map(s => s.name || '');
+    if (!existingNames.includes(desiredName)) return desiredName;
+    let counter = 1;
+    while (existingNames.includes(`${desiredName} (${counter})`)) counter++;
+    return `${desiredName} (${counter})`;
+  };
+
   const switchWorld = (w) => {
-    persist();
+    // Save immediately to localStorage so the Header can find it
+    const store = loadStore();
+    store[w.id] = {
+      id: w.id,
+      projectId: w.projectId || null,
+      name: w.name || 'Untitled Canvas',
+      updated: w.updated || Date.now(),
+      nodes: w.nodes ? w.nodes.map(pickNode) : [],
+      links: w.links || [],
+      rejected: w.rejected || [],
+    };
+    saveStore(store);
+    localStorage.setItem(LS_CURRENT, w.id);
+
     worldRef.current = w;
     viewRef.current = fitViewForNodes(w.nodes);
-    undoStack.current = []; redoStack.current = [];
+    undoStack.current = [];
+    redoStack.current = [];
     lastAIHashRef.current = '';
-    setModalId(null); setActiveSugg(null); setActiveLink(null); setLinkFrom(null); setSelIds(new Set()); setReplayIdx(null); setTargetId(null); setActiveTopic(null); setTopicMenuOpen(false); setMenuOpen(false);
-    localStorage.setItem(LS_CURRENT, w.id);
+
+    setModalId(null);
+    setActiveLink(null);
+    setLinkFrom(null);
+    setSelIds(new Set());
+    setReplayIdx(null);
+    setTargetId(null);
+    setActiveTopic(null);
+    setTopicMenuOpen(false);
+    setMenuOpen(false);
+    setInput(''); // Clear draft text from bottom input bar
+
+    // GUARANTEE IMMEDIATE REACT UI RE-RENDER:
+    setActiveWorldId(w.id);
     bump();
+    setSessionsRev(r => r + 1);
   };
-  const newCanvas = () => switchWorld(blankWorld());
-  
+  const newCanvas = (projectId = null) => {
+    const safeProjectId = (typeof projectId === 'string') ? projectId : null;
+    const newW = blankWorld();
+    newW.name = 'Untitled Canvas';
+    newW.projectId = safeProjectId;
+    switchWorld(newW);
+
+    setTimeout(() => {
+      const titleInput = document.getElementById('canvas-title-input');
+      if (titleInput) {
+        titleInput.focus();
+        titleInput.select();
+      }
+    }, 50);
+  };
+
   const openSession = (id) => {
     const s = loadStore()[id];
     if (!s) return;
-    const w = { ...blankWorld(), ...s, suggestions: [], rejected: s.rejected || [] };
+    const w = { ...blankWorld(), ...s };
     w.nodes = w.nodes.map(hydrateNode);
     w.nodes.forEach(n => { n.r = nodeRadius(n); });
     switchWorld(w);
     setDrawerOpen(false);
   };
   const renameSession = (id, name) => {
+    const uniqueName = getUniqueCanvasName(name, id);
     const store = loadStore();
-    if (store[id]) { store[id].name = name; saveStore(store); }
-    if (worldRef.current.id === id) worldRef.current.name = name;
+    if (store[id]) { store[id].name = uniqueName; saveStore(store); }
+    if (worldRef.current.id === id) worldRef.current.name = uniqueName;
     setSessionsRev(r => r + 1); bump();
   };
   const duplicateSession = (id) => {
@@ -1090,6 +1238,48 @@ Generate exactly 3 short, concrete follow-on ideas that develop this thought. Ea
     delete store[id]; saveStore(store);
     if (worldRef.current.id === id) worldRef.current = blankWorld();
     setSessionsRev(r => r + 1); bump();
+  };
+
+  const renameProject = (id, name) => {
+    const projs = loadProjects();
+    const p = projs.find(x => x.id === id);
+    if (p) {
+      p.name = name;
+      saveProjects(projs);
+      useStore.getState().setProjects(projs);
+      bump();
+    }
+  };
+
+  const deleteProjectHandler = (id) => {
+    const projs = loadProjects().filter(p => p.id !== id);
+    saveProjects(projs);
+    useStore.getState().setProjects(projs);
+    
+    const store = loadStore();
+    let updated = false;
+    for (const key in store) {
+      if (store[key].projectId === id) {
+        store[key].projectId = null;
+        updated = true;
+      }
+    }
+    if (updated) {
+      saveStore(store);
+      setSessionsRev(r => r + 1);
+    }
+    bump();
+  };
+
+  const moveCanvasToProject = (canvasId, projectId) => {
+    const store = loadStore();
+    if (store[canvasId]) {
+      store[canvasId].projectId = projectId;
+      saveStore(store);
+      if (worldRef.current.id === canvasId) worldRef.current.projectId = projectId;
+      setSessionsRev(r => r + 1);
+      bump();
+    }
   };
   
   window.tsSwitchToToday = () => {
@@ -1164,6 +1354,7 @@ Generate exactly 3 short, concrete follow-on ideas that develop this thought. Ea
       const els = {
         worldElRef, bgRef, nodeEls, zoneEls, pathEls, hitEls, labelEls, badgeEls, 
         suggCardRef, linkCardRef, previewRef, threadLineRef, mouseRef,
+        pullTetherGroupRef, sourceTetherGroupRef,
         screenToWorld: (x, y) => ({ x: (x - v.x) / v.s, y: (y - v.y) / v.s })
       };
       
@@ -1335,15 +1526,90 @@ Generate exactly 3 short, concrete follow-on ideas that develop this thought. Ea
     return () => { window.removeEventListener('pointermove', onMove); window.removeEventListener('pointerup', onUp); };
   }, []);
 
+  const clearAllSelections = useCallback(() => {
+    setSelIds(new Set());
+    setTargetId(null);
+    setActiveTopic(null);
+    setVacuumTopicId(null);
+    setVacuumSelectedIds(new Set());
+    setActiveSorterTopicId(null);
+    setHoveredPullTopicId(null);
+    setLinkFrom(null);
+
+    setActiveLink(null);
+    setModalId(null);
+    setSettingsOpen(false);
+    setExportOpen(false);
+    setTopicMenuOpen(false);
+    setTimerMenuOpen(false);
+    setExportSidebarOpen(false);
+    setSlashQuery(null);
+    useStore.setState({
+      selIds: new Set(),
+      targetId: null,
+      activeTopic: null,
+      vacuumTopicId: null,
+      vacuumSelectedIds: new Set(),
+      activeSorterTopicId: null,
+      hoveredPullTopicId: null,
+      linkFrom: null,
+      activeLink: null,
+      modalId: null,
+      settingsOpen: false,
+      exportOpen: false,
+    });
+  }, []);
+
   useEffect(() => {
     const onKey = (e) => {
       const typing = /INPUT|TEXTAREA/.test(document.activeElement && document.activeElement.tagName);
+      
+      // Auto-focus typing mechanic: if pressing a regular character key while not typing, focus input
+      if (!typing && e.key.length === 1 && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        document.getElementById('thought-input')?.focus();
+      }
+
       if (e.key === 'Escape') {
-        setLinkFrom(null); setActiveSugg(null); setActiveLink(null); setModalId(null);
-        setSelIds(new Set()); setSettingsOpen(false); setExportOpen(false); setTargetId(null); setTopicMenuOpen(false);
+        e.preventDefault();
+
+        // 1. Blur any focused text input or textarea
+        if (document.activeElement && typeof document.activeElement.blur === 'function') {
+          document.activeElement.blur();
+        }
+
+        // 2. Reset all interaction and selection states
+        setLinkFrom(null);
+        setHoveredSuggThoughtIds(null);
+        setActiveLink(null);
+        setModalId(null);
+        setSelIds(new Set());
+        setTargetId(null);
+        setActiveTopic(null);
         setActiveSorterTopicId(null);
-        setVacuumTopicId(null); setVacuumSelectedIds(new Set());
+        setVacuumTopicId(null);
+        setVacuumSelectedIds(new Set());
+        setReplayIdx(null);
+
+        // 3. Close all drawers, menus, and modals
+        setDrawerOpen(false);
+        setSettingsOpen(false);
+        setExportOpen(false);
+        setMenuOpen(false);
+        setTopicMenuOpen(false);
         setTimerMenuOpen(false);
+
+        // 4. Cancel any ongoing mouse drag, pan, or marquee box operations
+        dragRef.current = null;
+        panRef.current = null;
+        marqueeStartRef.current = null;
+        setMarquee(null);
+
+        return;
+      }
+      // Enter while pull/vacuum mode is active → confirm pull
+      if (e.key === 'Enter' && useStore.getState().vacuumTopicId) {
+        e.preventDefault();
+        confirmVacuum();
         return;
       }
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') {
@@ -1376,12 +1642,12 @@ Generate exactly 3 short, concrete follow-on ideas that develop this thought. Ea
       return;
     }
     panRef.current = { sx: e.clientX, sy: e.clientY, vx: viewRef.current.x, vy: viewRef.current.y };
-    setActiveSugg(null); setActiveLink(null); setLinkFrom(null); setSelIds(new Set()); setExportOpen(false); setTargetId(null); setTopicMenuOpen(false);
+    setActiveLink(null); setLinkFrom(null); setSelIds(new Set()); setExportOpen(false); setTargetId(null); setTopicMenuOpen(false);
     setVacuumTopicId(null); setVacuumSelectedIds(new Set());
   };
   const onBubbleDown = (node) => (e) => {
     e.stopPropagation();
-    if (e.metaKey || e.ctrlKey) {
+    if (e.metaKey || e.ctrlKey || e.shiftKey) {
       setSelIds(prev => {
         const next = new Set(prev);
         if (next.has(node.id)) next.delete(node.id);
@@ -1419,70 +1685,49 @@ Generate exactly 3 short, concrete follow-on ideas that develop this thought. Ea
     TEMPLATES[name].forEach((t, i) => setTimeout(() => addThought(t, { skipUndo: true }), i * 320));
   };
 
-  const getActiveSuggestionPill = () => {
-    const w = worldRef.current;
-    if (!w || !w.suggestions || w.suggestions.length === 0) return null;
-    const s = w.suggestions[0];
-    if (s.type === 'metaHub') {
-      return { text: `Group under "${s.title}"`, suggestion: s };
+
+
+  const handleInputChange = (e) => {
+    const val = e.target.value;
+    setInput(val);
+    const slashMatch = val.match(/(?:^|\s)\/([a-zA-Z0-9_-]*)$/);
+    if (slashMatch) {
+      setSlashQuery(slashMatch[1].toLowerCase());
+      setSlashIndex(0);
+    } else {
+      setSlashQuery(null);
     }
-    if (s.type === 'pair') {
-      const a = byId(s.a), b = byId(s.b);
-      if (a && b) {
-        return { text: `Link "${a.text.slice(0, 20)}..." & "${b.text.slice(0, 20)}..."`, suggestion: s };
-      }
-    }
-    return null;
   };
 
-  const acceptPillSuggestion = () => {
-    const pill = getActiveSuggestionPill();
-    if (!pill) return;
-    const s = pill.suggestion;
-    const w = worldRef.current;
-    pushUndo();
-    if (s.type === 'metaHub') {
-      let hub = w.nodes.find(n => (n.isHub || n.isTopic) && n.title && n.title.toLowerCase() === s.title.toLowerCase());
-      if (!hub) {
-        const spawnPos = screenToWorld(window.innerWidth / 2, window.innerHeight / 2);
-        hub = {
-          id: uid(), text: s.title, title: s.title, notes: '', color: 0,
-          x: spawnPos.x, y: spawnPos.y, vx: 0, vy: 0, r: 74, isTopic: true, topicId: null,
-          released: false, created: Date.now()
-        };
-        w.nodes.push(hub);
-      }
-      (s.thoughtIds || []).forEach(tid => {
-        const child = byId(tid);
-        if (child) {
-          child.topicId = hub.id;
-          if (!w.links.some(l => pairKey(l.a, l.b) === pairKey(hub.id, child.id))) {
-            w.links.push({ id: uid(), a: hub.id, b: child.id });
-          }
+  const handleInputKeyDown = (e) => {
+
+    // If the pull/vacuum mode is active, Enter confirms the pull
+    if (e.key === 'Enter' && useStore.getState().vacuumTopicId) {
+      e.preventDefault();
+      confirmVacuum();
+      return;
+    }
+    if (slashQuery !== null) {
+      const filteredTopics = worldRef.current.nodes.filter(n => n.isTopic && n.title.toLowerCase().includes(slashQuery));
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setSlashIndex(i => (i + 1) % filteredTopics.length);
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setSlashIndex(i => (i - 1 + filteredTopics.length) % filteredTopics.length);
+      } else if (e.key === 'Tab' || e.key === 'Enter') {
+        e.preventDefault();
+        const selected = filteredTopics[slashIndex];
+        if (selected) {
+           const newVal = input.replace(/(?:^|\s)\/[a-zA-Z0-9_-]*$/, '');
+           setInput(newVal);
+           setSlashQuery(null);
+           useStore.getState().setActiveTopic(selected.id);
         }
-      });
-      w.suggestions = w.suggestions.filter(x => x.id !== s.id);
-    } else if (s.type === 'pair') {
-      createLink(s.a, s.b, true);
-      w.suggestions = w.suggestions.filter(x => x.id !== s.id);
+      } else if (e.key === ' ') {
+        setSlashQuery(null);
+      }
     }
-    w.updated = Date.now();
-    bump();
-  };
-
-  const dismissPillSuggestion = () => {
-    const pill = getActiveSuggestionPill();
-    if (!pill) return;
-    const s = pill.suggestion;
-    const w = worldRef.current;
-    w.suggestions = w.suggestions.filter(x => x.id !== s.id);
-    if (s.type === 'metaHub') {
-      w.rejected.push(s.title.toLowerCase());
-    } else if (s.type === 'pair') {
-      w.rejected.push(pairKey(s.a, s.b));
-    }
-    w.updated = Date.now();
-    bump();
   };
 
   /* ---------- render ---------- */
@@ -1491,12 +1736,10 @@ Generate exactly 3 short, concrete follow-on ideas that develop this thought. Ea
   const targetNode = targetId && byId(targetId);
   const topics = w.nodes.filter(n => n.isTopic);
   const activeTopicNode = activeTopic && byId(activeTopic);
-  const suggCard = activeSugg && w.suggestions.find(s => s.id === activeSugg);
   const linkCard = activeLink && w.links.find(l => l.id === activeLink);
   const store = loadStore();
   const sessionList = Object.values(store).sort((a, b) => b.updated - a.updated);
   const replaying = replayIdx !== null;
-  const activeSuggestionPill = getActiveSuggestionPill();
 
   return (
     <div ref={containerRef} className={`fixed inset-0 select-none ${activeSorterTopicId ? 'cursor-crosshair' : ''}`} onPointerDown={onBackgroundDown}>
@@ -1518,14 +1761,26 @@ Generate exactly 3 short, concrete follow-on ideas that develop this thought. Ea
             }} />
         ))}
         <svg className="absolute" style={{ overflow: 'visible', width: 1, height: 1 }}>
-          {w.links.map(l => (
+          <defs>
+            <marker id="arrow" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="rgba(160,160,160,0.6)" />
+            </marker>
+          </defs>
+          {w.links.filter(l => {
+            const a = byId(l.a);
+            const b = byId(l.b);
+            if (!a || !b) return false;
+            if (a.isTopic && b.topicId === a.id) return false;
+            if (b.isTopic && a.topicId === b.id) return false;
+            return true;
+          }).map(l => (
             <g key={l.id}>
               <path ref={el => { if (el) pathEls.current[l.id] = el; }}
-                className="link-path" fill="none" stroke="rgba(160,160,160,0.35)" strokeWidth="2" strokeLinecap="round" />
+                className="link-path" fill="none" stroke="rgba(160,160,160,0.35)" strokeWidth="2" strokeLinecap="round" markerEnd={l.isArrow ? "url(#arrow)" : undefined} />
               <path ref={el => { if (el) hitEls.current[l.id] = el; }}
                 fill="none" stroke="transparent" strokeWidth="20" style={{ pointerEvents: 'stroke', cursor: 'pointer' }}
                 onPointerDown={e => e.stopPropagation()}
-                onClick={e => { e.stopPropagation(); setActiveLink(activeLink === l.id ? null : l.id); setActiveSugg(null); }} />
+                onClick={e => { e.stopPropagation(); setActiveLink(activeLink === l.id ? null : l.id); }} />
             </g>
           ))}
 
@@ -1582,10 +1837,16 @@ Generate exactly 3 short, concrete follow-on ideas that develop this thought. Ea
           <div data-ui ref={linkCardRef} onPointerDown={e => e.stopPropagation()}
             className="glass absolute left-0 top-0 rounded-xl p-3 w-56 z-20 will-change-transform">
             <div className="text-[11px] uppercase tracking-wider text-neutral-500 mb-1">Connection label</div>
-            <input defaultValue={linkCard.label || ''} placeholder="e.g. depends on…" autoFocus
-              onChange={e => { linkCard.label = e.target.value; worldRef.current.updated = Date.now(); }}
-              onBlur={bump} onKeyDown={e => e.key === 'Enter' && (bump(), setActiveLink(null))}
+            <input defaultValue={linkCard.label || ''} placeholder="e.g. depends on…" onBlur={() => { bump(); }}
+              onChange={e => { linkCard.label = e.target.value; worldRef.current.updated = Date.now(); persist(); }}
+              onKeyDown={e => e.key === 'Enter' && (bump(), persist(), setActiveLink(null))}
               className="w-full bg-neutral-800/60 border border-neutral-600/40 rounded-lg px-2.5 py-1.5 text-neutral-100 text-sm mb-2" />
+            <div className="flex gap-2 mb-2">
+              <button onClick={() => { linkCard.isArrow = !linkCard.isArrow; worldRef.current.updated = Date.now(); bump(); persist(); }}
+                className={`flex-1 text-xs border rounded-lg py-1.5 ${linkCard.isArrow ? 'bg-cyan-500/20 border-cyan-400/40 text-cyan-200' : 'bg-neutral-800/60 border-neutral-600/40 text-neutral-300 hover:bg-neutral-700'}`}>
+                {linkCard.isArrow ? 'Arrow' : 'Line'}
+              </button>
+            </div>
             <div className="flex gap-2">
               <button onClick={() => { bump(); setActiveLink(null); }}
                 className="flex-1 text-xs bg-neutral-800 hover:bg-neutral-700 border border-neutral-600 text-neutral-100 rounded-lg py-1.5">Done</button>
@@ -1601,9 +1862,14 @@ Generate exactly 3 short, concrete follow-on ideas that develop this thought. Ea
           const isSource = linkFrom === n.id;
           const isSel = selIds.has(n.id);
           const memberCount = n.isHub ? hubMembers(n.id).length : 0;
-          const isVacuumHighlighted = vacuumTopicId && vacuumSelectedIds.has(n.id);
+          const isSuggHighlighted = hoveredSuggThoughtIds && hoveredSuggThoughtIds.has(n.id);
+          const isVacuumHighlighted = (vacuumTopicId && vacuumSelectedIds.has(n.id)) || isSuggHighlighted;
           const isVacuumTargetTopic = vacuumTopicId === n.id;
-          const nodeOpacity = vacuumTopicId ? (isVacuumTargetTopic || isVacuumHighlighted ? 1 : (n.topicId && n.topicId !== vacuumTopicId ? 0.35 : 0.6)) : undefined;
+          const nodeOpacity = vacuumTopicId
+            ? (isVacuumTargetTopic || isVacuumHighlighted ? 1 : (n.topicId && n.topicId !== vacuumTopicId ? 0.35 : 0.6))
+            : (hoveredSuggThoughtIds ? (isSuggHighlighted ? 1 : 0.35) : undefined);
+          const isAnsweredQuestion = n.isQuestion && w.links.some(l => l.a === n.id || l.b === n.id);
+          const isUnansweredQuestion = n.isQuestion && !isAnsweredQuestion;
           return (
             <div key={n.id} data-bubble data-id={n.id}
               ref={el => { 
@@ -1614,6 +1880,10 @@ Generate exactly 3 short, concrete follow-on ideas that develop this thought. Ea
                     observedNodes.current.add(el);
                     nodeBounds.current[n.id] = { w: el.offsetWidth / 2, h: el.offsetHeight / 2 };
                   }
+                } else {
+                  delete nodeEls.current[n.id];
+                  delete nodeBounds.current[n.id];
+                  // Note: resizeObserver automatically unobserves unmounted elements
                 }
               }}
               onPointerDown={onBubbleDown(n)}
@@ -1634,7 +1904,7 @@ Generate exactly 3 short, concrete follow-on ideas that develop this thought. Ea
                     : (n.topicId && n.color === 0 ? 'var(--surface-bg)' : c.bg),
                   border: n.isHub || n.isTopic
                     ? `1.5px solid ${isVacuumTargetTopic || isSel || targetId === n.id || activeTopic === n.id ? (theme === 'light' ? '#000000' : '#FFFFFF') : (theme === 'light' ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.20)')}`
-                    : `1px solid ${isSource || isSel || targetId === n.id ? (theme === 'light' ? '#000000' : '#FFFFFF') : (n.topicId && n.color === 0 ? 'var(--surface-border)' : c.border)}`,
+                    : `1.5px solid ${isUnansweredQuestion ? 'rgba(239, 68, 68, 0.85)' : isSource || isSel || targetId === n.id ? (theme === 'light' ? '#000000' : '#FFFFFF') : (n.topicId && n.color === 0 ? 'var(--surface-border)' : c.border)}`,
                   color: theme === 'light' ? '#1B1B1B' : '#EAEAEA',
                   boxShadow: n.isHub || n.isTopic
                     ? (theme === 'light' ? '0 12px 32px rgba(0,0,0,0.06)' : '0 12px 32px rgba(0,0,0,0.25)')
@@ -1693,7 +1963,7 @@ Generate exactly 3 short, concrete follow-on ideas that develop this thought. Ea
                         type="button"
                         onPointerDown={e => e.stopPropagation()}
                         onClick={e => { e.stopPropagation(); exportTopicMarkdown(n); }}
-                        title="Copy Raw Markdown"
+                        title="Export Topic to Outline"
                         className={'p-1 rounded-md transition-colors flex items-center justify-center '
                           + (theme === 'light' ? 'text-gray-500 hover:text-gray-900 hover:bg-gray-200/60' : 'text-neutral-400 hover:text-neutral-200 hover:bg-neutral-700/50')}>
                         <CopyIcon size={13} />
@@ -1711,7 +1981,20 @@ Generate exactly 3 short, concrete follow-on ideas that develop this thought. Ea
                   </div>
                 )}
                 <span className={n.isHub || n.isTopic ? 'font-display font-bold text-[20px] sm:text-[22px] leading-snug' : 'text-[15px] sm:text-[16px] leading-relaxed font-semibold'}
-                  style={{ wordBreak: 'break-word', color: theme === 'light' ? '#1B1B1B' : '#EAEAEA' }}>
+                  style={{ wordBreak: 'break-word', color: theme === 'light' ? '#1B1B1B' : '#EAEAEA' }}
+                  onDoubleClick={(e) => {
+                    if (n.isTopic || n.isHub) {
+                      e.stopPropagation();
+                      const newTitle = window.prompt("Rename Topic:", n.title);
+                      if (newTitle !== null && newTitle.trim() !== '') {
+                        n.title = newTitle.trim();
+                        n.text = newTitle.trim();
+                        worldRef.current.updated = Date.now();
+                        bump();
+                        persist();
+                      }
+                    }
+                  }}>
                   {n.isHub || n.isTopic ? n.title : n.text}
                 </span>
                 {!n.isHub && n.notes && <span className="mt-1 w-1.5 h-1.5 rounded-full" style={{ background: c.dot === '#737373' ? ACCENT : c.dot }} title="Has notes" />}
@@ -1743,7 +2026,7 @@ Generate exactly 3 short, concrete follow-on ideas that develop this thought. Ea
                 </button>
                 <button data-ui
                   onPointerDown={e => e.stopPropagation()}
-                  onClick={e => { e.stopPropagation(); pushUndo(); n.pinned = !n.pinned; n.vx = 0; n.vy = 0; worldRef.current.updated = Date.now(); bump(); }}
+                  onClick={e => { e.stopPropagation(); pushUndo(); n.pinned = !n.pinned; n.vx = 0; n.vy = 0; worldRef.current.updated = Date.now(); bump(); persist(); }}
                   className={'link-handle absolute -bottom-2 -right-2 w-7 h-7 rounded-full flex items-center justify-center '
                     + (n.pinned ? 'text-amber-300' : 'text-neutral-300')}
                   style={{ background: n.pinned ? 'rgba(60,45,10,0.95)' : 'rgba(30,41,59,0.95)', border: '1px solid ' + (n.pinned ? 'rgba(251,191,36,0.6)' : 'rgba(148,163,184,0.4)'), opacity: n.pinned ? 1 : undefined, touchAction: 'none' }}
@@ -1759,14 +2042,20 @@ Generate exactly 3 short, concrete follow-on ideas that develop this thought. Ea
                   <MsgIcon size={12} />
                 </button>
                 {!n.isHub && n.isQuestion && (
-                  <span className="absolute -top-2 -left-2 w-5 h-5 rounded-full flex items-center justify-center text-[11px] font-semibold text-neutral-200 pointer-events-none"
-                    style={{ background: 'rgba(30,41,59,0.95)', border: '1px solid rgba(255,255,255,0.25)' }}
-                    title="Question — replies thread here">?</span>
+                  <span className="absolute -top-2 -left-2 w-5 h-5 rounded-full flex items-center justify-center text-[11px] font-bold pointer-events-none transition-colors shadow-sm"
+                    style={{ 
+                      background: isUnansweredQuestion ? 'rgba(185, 28, 28, 0.95)' : 'rgba(16, 185, 129, 0.95)', 
+                      border: isUnansweredQuestion ? '1px solid rgba(248, 113, 113, 0.8)' : '1px solid rgba(52, 211, 153, 0.8)',
+                      color: '#FFFFFF'
+                    }}
+                    title={isUnansweredQuestion ? "Unanswered Question (connect a thought to answer)" : "Answered Question"}>
+                    ?
+                  </span>
                 )}
                 {n.topicId && !n.isTopic && !n.isHub && (
                   <button data-ui
                     onPointerDown={e => e.stopPropagation()}
-                    onClick={e => { e.stopPropagation(); pushUndo(); n.topicId = null; n.sleeping = false; const v = viewRef.current; const f = document.getElementById('main-chat-form'); if(f){ const r=f.getBoundingClientRect(); n.x = (r.left + r.width/2 - v.x)/v.s; n.y = (r.top - 40 - v.y)/v.s; } else { n.x = (window.innerWidth / 2 - v.x) / v.s; n.y = (window.innerHeight - 150 - v.y) / v.s; } n.vx = 0; n.vy = 0; worldRef.current.updated = Date.now(); bump(); }}
+                    onClick={e => { e.stopPropagation(); pushUndo(); n.topicId = null; n.sleeping = false; const v = viewRef.current; const f = document.getElementById('main-chat-form'); if(f){ const r=f.getBoundingClientRect(); n.x = (r.left + r.width/2 - v.x)/v.s; n.y = (r.top - 40 - v.y)/v.s; } else { n.x = (window.innerWidth / 2 - v.x) / v.s; n.y = (window.innerHeight - 150 - v.y) / v.s; } n.vx = 0; n.vy = 0; worldRef.current.updated = Date.now(); bump(); persist(); }}
                     className="link-handle absolute -top-3 left-1/2 -translate-x-1/2 w-7 h-7 rounded-full flex items-center justify-center text-red-300 hover:bg-red-950 transition-colors"
                     style={{ background: 'rgba(30,41,59,0.95)', border: '1px solid rgba(239,68,68,0.4)', touchAction: 'none' }}
                     title="Detach from topic">
@@ -1776,7 +2065,7 @@ Generate exactly 3 short, concrete follow-on ideas that develop this thought. Ea
                 {n.isHub && (
                   <button data-ui
                     onPointerDown={e => e.stopPropagation()}
-                    onClick={e => { e.stopPropagation(); n.collapsed = !n.collapsed; worldRef.current.updated = Date.now(); bump(); }}
+                    onClick={e => { e.stopPropagation(); n.collapsed = !n.collapsed; worldRef.current.updated = Date.now(); bump(); persist(); }}
                     className="hub-toggle absolute -top-2 -left-2 w-6 h-6 rounded-full flex items-center justify-center text-neutral-200"
                     style={{ background: 'rgba(30,41,59,0.95)', border: '1px solid rgba(255,255,255,0.25)', opacity: n.collapsed ? 1 : undefined }}
                     title={n.collapsed ? 'Expand cluster' : 'Collapse cluster'}>
@@ -1835,14 +2124,7 @@ Generate exactly 3 short, concrete follow-on ideas that develop this thought. Ea
       {selIds.size > 0 && !activeSorterTopicId && !linkFrom && (
         <div data-ui className="absolute bottom-[116px] left-1/2 -translate-x-1/2 flex items-center gap-2.5 bg-neutral-900/90 border border-neutral-700/60 rounded-full px-4 py-2 shadow-2xl z-50 animate-pop-in backdrop-blur-xl pointer-events-auto select-none">
           <span className="text-neutral-300 text-sm font-medium mr-2">{selIds.size} selected</span>
-          <button onClick={() => {
-              pushUndo();
-              w.nodes = w.nodes.filter(n => !selIds.has(n.id));
-              w.links = w.links.filter(l => !selIds.has(l.a) && !selIds.has(l.b));
-              setSelIds(new Set());
-              w.updated = Date.now();
-              bump();
-          }} className="text-xs bg-red-500/20 hover:bg-red-500/30 text-red-300 px-3 py-1.5 rounded-full font-medium transition-colors border border-red-500/20">Delete</button>
+          <button onClick={() => deleteNodes(selIds)} className="text-xs bg-red-500/20 hover:bg-red-500/30 text-red-300 px-3 py-1.5 rounded-full font-medium transition-colors border border-red-500/20">Delete</button>
           
           <div className="relative">
              <select 
@@ -1864,6 +2146,51 @@ Generate exactly 3 short, concrete follow-on ideas that develop this thought. Ea
                 })()}
              </select>
              <span className="absolute right-2 top-1/2 -translate-y-1/2 text-blue-300 pointer-events-none text-[10px]">▼</span>
+          </div>
+
+          <div className="relative">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setMoveTopicMenuOpen(!moveTopicMenuOpen);
+              }}
+              className="px-3 py-1.5 rounded-full border border-neutral-700/80 bg-neutral-800/90 hover:bg-neutral-700 text-neutral-200 text-xs font-medium transition-all flex items-center gap-1.5 shadow-sm"
+            >
+              <span>Move to Topic...</span>
+              <span className="text-[10px]">▼</span>
+            </button>
+
+            {moveTopicMenuOpen && (() => {
+              const canvasTopics = w.nodes.filter(n => (n.isTopic || n.isHub) && n.title);
+              return (
+                <div 
+                  className="absolute bottom-full left-0 mb-2 w-48 rounded-2xl border border-neutral-700/80 bg-neutral-900/95 backdrop-blur-md shadow-2xl py-1.5 z-50 text-neutral-100 max-h-60 overflow-y-auto"
+                  onClick={e => e.stopPropagation()}
+                >
+                  <button
+                    onClick={() => transferSelectedToTopic(null)}
+                    className="w-full text-left px-3 py-1.5 text-xs text-neutral-300 hover:bg-neutral-800/80 hover:text-white flex items-center gap-2 border-b border-neutral-800"
+                  >
+                    <span>⏏ Remove from Topic</span>
+                  </button>
+
+                  {canvasTopics.length > 0 ? (
+                    canvasTopics.map(t => (
+                      <button
+                        key={t.id}
+                        onClick={() => transferSelectedToTopic(t.id, t.color)}
+                        className="w-full text-left px-3 py-1.5 text-xs text-neutral-200 hover:bg-neutral-800/80 hover:text-white truncate flex items-center gap-2"
+                      >
+                        <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: t.color !== undefined ? `var(--color-${t.color})` : '#6366f1' }} />
+                        <span className="truncate">{t.title}</span>
+                      </button>
+                    ))
+                  ) : (
+                    <div className="px-3 py-2 text-[11px] text-neutral-500 italic">No topics on canvas</div>
+                  )}
+                </div>
+              );
+            })()}
           </div>
 
           <button onClick={() => setSelIds(new Set())} className="text-neutral-400 hover:text-neutral-200 p-1 ml-1 rounded-full hover:bg-neutral-800 transition-colors">
@@ -1895,58 +2222,84 @@ Generate exactly 3 short, concrete follow-on ideas that develop this thought. Ea
         <span className="font-display flex items-center gap-1.5 font-bold tracking-tight whitespace-nowrap pr-1 text-sm sm:text-base" style={{ color: 'var(--text-main)' }}>
           <SparkIcon size={17} style={{ color: 'var(--text-main)' }} /> ThoughtStream
         </span>
-        <select 
-          value={w.id}
-          onChange={(e) => {
-            const val = e.target.value;
-            if (val === 'new_project') {
-              newCanvas();
-            } else if (val === 'rename') {
-              const newName = prompt('Enter new stream name:', w.name);
-              if (newName) {
-                w.name = newName;
+        {/* Editable Canvas Name & Quick Switcher Dropdown */}
+        <div className="hidden sm:flex items-center gap-0.5">
+          <input
+            id="canvas-title-input"
+            type="text"
+            value={w.name || ''}
+            onChange={(e) => {
+              w.name = e.target.value;
+              w.updated = Date.now();
+              bump();
+              persist();
+              setSessionsRev(r => r + 1);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.target.blur();
+                focusInput();
+              }
+            }}
+            onBlur={(e) => {
+              const uniqueName = getUniqueCanvasName(e.target.value.trim() || 'Untitled Canvas', w.id);
+              if (uniqueName !== w.name) {
+                w.name = uniqueName;
                 w.updated = Date.now();
                 bump();
-              }
-            } else if (val) {
-              const store = loadStore();
-              if (store[val]) {
                 persist();
-                localStorage.setItem(LS_CURRENT, val);
-                window.location.reload();
+                setSessionsRev(r => r + 1);
               }
-            }
-          }}
-          className="bg-transparent text-neutral-400 text-sm border-b border-transparent focus:border-neutral-500 focus:text-neutral-200 px-1 py-0.5 hidden lg:block font-medium outline-none cursor-pointer max-w-[200px]"
-          title="Switch Stream"
-        >
-          <optgroup label="Current">
-             <option value={w.id}>{w.name}</option>
-             <option value="rename">✏️ Rename...</option>
-          </optgroup>
-          {(() => {
-             const history = JSON.parse(localStorage.getItem(LS_HISTORY) || '[]');
-             const store = loadStore();
-             const projects = Object.values(store).filter(s => s.id !== w.id && !history.find(h => h.id === s.id));
-             return (
-               <>
-                 {history.length > 0 && (
-                   <optgroup label="History">
-                     {history.map(h => <option key={h.id} value={h.id}>{h.name}</option>)}
-                   </optgroup>
-                 )}
-                 {projects.length > 0 && (
-                   <optgroup label="Projects">
-                     {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                   </optgroup>
-                 )}
-                 <optgroup label="Actions">
-                   <option value="new_project">+ New Canvas</option>
-                 </optgroup>
-               </>
-             );
-          })()}
-        </select>
+            }}
+            placeholder="Canvas name..."
+            title="Click to rename canvas"
+            className="bg-transparent text-neutral-300 hover:text-neutral-100 focus:text-neutral-100 text-sm font-medium outline-none border-b border-transparent focus:border-neutral-500/60 px-1 py-0.5 max-w-[150px] focus:max-w-[220px] transition-all truncate"
+          />
+          <div className="relative flex items-center justify-center p-1 rounded-md hover:bg-neutral-800/40 text-neutral-400 hover:text-neutral-200 cursor-pointer" title="Switch Canvas">
+            <ChevronDownIcon size={14} />
+            <select 
+              value=""
+              onChange={(e) => {
+                const val = e.target.value;
+                if (val === 'new_project') {
+                  newCanvas();
+                } else if (val) {
+                  const store = loadStore();
+                  if (store[val]) {
+                    persist();
+                    localStorage.setItem(LS_CURRENT, val);
+                    window.location.reload();
+                  }
+                }
+              }}
+              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+            >
+              <option value="" disabled hidden></option>
+              {(() => {
+                 const history = JSON.parse(localStorage.getItem(LS_HISTORY) || '[]');
+                 const store = loadStore();
+                 const projects = Object.values(store).filter(s => s.id !== w.id && !history.find(h => h.id === s.id));
+                 return (
+                   <>
+                     {history.length > 0 && (
+                       <optgroup label="History">
+                         {history.map(h => <option key={h.id} value={h.id}>{h.name}</option>)}
+                       </optgroup>
+                     )}
+                     {projects.length > 0 && (
+                       <optgroup label="Projects">
+                         {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                       </optgroup>
+                     )}
+                     <optgroup label="Actions">
+                       <option value="new_project">+ New Canvas</option>
+                     </optgroup>
+                   </>
+                 );
+              })()}
+            </select>
+          </div>
+        </div>
 
         {/* Find Input */}
         <div className="flex items-center gap-1.5 px-2.5 h-8 w-36 sm:w-44 rounded-lg bg-neutral-950/20 border border-neutral-700/30 focus-within:border-neutral-500/50 transition-all ml-1 shrink-0">
@@ -1966,9 +2319,10 @@ Generate exactly 3 short, concrete follow-on ideas that develop this thought. Ea
           className="ghost-btn flex items-center gap-1.5 text-[13px] text-neutral-300 rounded-lg px-2.5 py-1.5 whitespace-nowrap">
           <LibraryIcon size={14} /> <span className="hidden lg:inline">Streams</span>
         </button>
+        {/*
         <button onClick={() => setPureDump(p => {
             const next = !p;
-            if (next) { setActiveSugg(null); }
+            if (next) { }
             else { setTimeout(() => runAI(), 250); } // batch scan on exit
             return next;
           })}
@@ -1976,17 +2330,21 @@ Generate exactly 3 short, concrete follow-on ideas that develop this thought. Ea
           className={'ghost-btn flex items-center gap-1.5 text-[13px] rounded-lg px-2.5 py-1.5 whitespace-nowrap ' + (pureDump ? 'text-amber-300 bg-amber-400/10' : 'text-neutral-300')}>
           <ZapIcon size={14} /> <span className="hidden lg:inline">Pure Dump</span>
         </button>
+        */}
 
 
 
         {/* Settings Gear Dropdown Menu */}
-        <HeaderMenu exportMarkdown={() => {}} exportPNG={() => {}} />
+        <HeaderMenu exportMarkdown={handleExportMarkdownOutline} exportPNG={() => {}} />
       </header>
 
 
 
       {/* Timer Menu */}
       <TimerMenu startTimer={startTimer} />
+
+      {/* Export Staging Sidebar */}
+      <ExportSidebar />
 
       {/* toolbar */}
       <Toolbar 
@@ -2010,38 +2368,16 @@ Generate exactly 3 short, concrete follow-on ideas that develop this thought. Ea
 
       {/* bottom input */}
       <form data-ui id="main-chat-form"
-        onSubmit={e => { e.preventDefault(); addThought(input); setInput(''); }}
+        onSubmit={e => {
+          e.preventDefault();
+          if (useStore.getState().vacuumTopicId) {
+            confirmVacuum();
+            return;
+          }
+          addThought(input);
+          setInput('');
+        }}
         className="absolute bottom-6 left-1/2 -translate-x-1/2 z-30 w-[min(580px,88vw)]">
-        {/* Floating AI Emergent Topic Suggestion Pill */}
-        {activeSuggestionPill && !pureDump && (
-          <div className="absolute bottom-full mb-3 left-1/2 -translate-x-1/2 z-40 animate-pop-in pointer-events-auto" onPointerDown={e => e.stopPropagation()}>
-            <div onClick={acceptPillSuggestion}
-              className="flex items-center gap-2 px-4 py-2 rounded-full text-xs sm:text-sm font-semibold transition-all shadow-lg hover:scale-[1.03] active:scale-[0.98] border cursor-pointer select-none whitespace-nowrap"
-              style={{
-                background: theme === 'light' ? '#FFFFFF' : '#2A2A2A',
-                color: theme === 'light' ? '#1B1B1B' : '#EAEAEA',
-                borderColor: theme === 'light' ? 'rgba(0,0,0,0.12)' : 'rgba(255,255,255,0.15)',
-                boxShadow: theme === 'light' ? '0 8px 24px rgba(0,0,0,0.08)' : '0 8px 24px rgba(0,0,0,0.4)',
-              }}>
-              <span className="flex items-center gap-1.5">
-                <SparkIcon size={14} style={{ color: theme === 'light' ? '#1B1B1B' : '#EAEAEA' }} />
-                <span>✨ {activeSuggestionPill.text}</span>
-              </span>
-              <span className="text-[11px] px-2.5 py-0.5 rounded-full font-bold ml-1 transition-colors"
-                style={{
-                  background: theme === 'light' ? '#F3F4F6' : 'rgba(255,255,255,0.10)',
-                  color: theme === 'light' ? '#1B1B1B' : '#EAEAEA',
-                  border: theme === 'light' ? '1px solid rgba(0,0,0,0.08)' : '1px solid rgba(255,255,255,0.12)'
-                }}>
-                Group & Link
-              </span>
-              <span onClick={(e) => { e.stopPropagation(); dismissPillSuggestion(); }}
-                className="ml-1 text-neutral-400 hover:text-neutral-200 text-xs px-1 font-bold cursor-pointer" title="Dismiss suggestion">
-                ✕
-              </span>
-            </div>
-          </div>
-        )}
         {targetNode && (
           <div className="glass rounded-xl flex items-center gap-2 pl-3 pr-2 py-1.5 mb-2 text-[12.5px]">
             <span className="shrink-0">💬</span>
@@ -2057,27 +2393,99 @@ Generate exactly 3 short, concrete follow-on ideas that develop this thought. Ea
         )}
         {/* topic dropdown menu */}
         <TopicMenu topics={topics} nodes={w.nodes} createTopic={createTopic} />
-        <div className="glass spotlight-bar flex items-center gap-2 pl-3 pr-2 py-2">
-          <button type="button" onClick={() => setTopicMenuOpen(o => !o)}
-            title={activeSorterTopicId ? `Quick-Sorter active for: ${byId(activeSorterTopicId)?.title}` : "Choose a topic — new thoughts drift into its cluster"}
-            className="flex items-center gap-1.5 shrink-0 rounded-full px-3 h-9 text-[13px] border max-w-[140px] transition-colors"
-            style={{
-              background: activeSorterTopicId
-                ? 'rgba(245,158,11,0.15)'
-                : (theme === 'light' ? '#F3F4F6' : '#2A2A2A'),
-              borderColor: activeSorterTopicId
-                ? 'rgba(245,158,11,0.4)'
-                : (theme === 'light' ? 'rgba(0,0,0,0.12)' : 'rgba(255,255,255,0.15)'),
-              color: activeSorterTopicId
-                ? '#FCD34D'
-                : (theme === 'light' ? '#1B1B1B' : '#EAEAEA'),
-              fontWeight: activeTopicNode ? 600 : 500
-            }}>
-            <span className="shrink-0" style={{ color: activeSorterTopicId ? '#FCD34D' : (theme === 'light' ? '#1B1B1B' : '#EAEAEA') }}>{activeSorterTopicId ? '⚡' : '◆'}</span>
-            <span className="truncate" style={{ color: activeSorterTopicId ? '#FCD34D' : (theme === 'light' ? '#1B1B1B' : '#EAEAEA') }}>{activeSorterTopicId ? byId(activeSorterTopicId)?.title : activeTopicNode ? activeTopicNode.title : '+ Topic'}</span>
-          </button>
-          <input id="thought-input" value={input} onChange={e => setInput(e.target.value)} onPaste={onPaste}
-            placeholder={activeTopicNode ? `Add to “${activeTopicNode.title}”…` : 'Drop a thought…'} autoComplete="off"
+        <div className={`glass spotlight-bar flex items-center gap-2 pl-3 pr-2 py-2 transition-all duration-200 ${
+          activeSorterTopicId
+            ? 'border-amber-400/50 shadow-[0_0_20px_rgba(245,158,11,0.15)]'
+            : activeTopicNode
+              ? 'border-neutral-400/60 shadow-[0_0_20px_rgba(255,255,255,0.08)]'
+              : ''
+        }`}>
+          {activeSorterTopicId || activeTopicNode ? (
+            <div
+              onClick={() => setTopicMenuOpen(o => !o)}
+              title={activeSorterTopicId ? `Quick-Sorter active for: ${byId(activeSorterTopicId)?.title}` : `Routing to: ${activeTopicNode?.title}`}
+              className={`flex items-center gap-2 shrink-0 rounded-full px-3 h-8.5 text-xs sm:text-sm transition-all duration-200 border cursor-pointer select-none ${
+                activeSorterTopicId
+                  ? 'bg-amber-500/20 border-amber-400/50 text-amber-300 font-semibold shadow-inner'
+                  : 'bg-neutral-100 border-neutral-200 text-neutral-900 font-bold shadow-md hover:bg-white'
+              }`}
+            >
+              <span className={`shrink-0 text-xs ${activeSorterTopicId ? 'text-amber-300' : 'text-neutral-900 font-bold'}`}>{activeSorterTopicId ? '⚡' : '◆'}</span>
+              <span className={`truncate max-w-[130px] ${activeSorterTopicId ? 'font-semibold' : 'font-bold text-neutral-900'}`}>{activeSorterTopicId ? byId(activeSorterTopicId)?.title : activeTopicNode?.title}</span>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (activeSorterTopicId) setActiveSorterTopicId(null);
+                  else useStore.getState().setActiveTopic(null);
+                  focusInput();
+                }}
+                title="Clear active topic"
+                className={activeSorterTopicId
+                  ? "p-0.5 -mr-1 rounded-full text-amber-300/70 hover:text-amber-200 hover:bg-amber-500/30 transition-colors shrink-0"
+                  : "p-0.5 -mr-1 rounded-full text-neutral-500 hover:text-neutral-950 hover:bg-neutral-200/80 transition-colors shrink-0"
+                }
+              >
+                <XIcon size={12} />
+              </button>
+            </div>
+          ) : (
+            <button type="button" onClick={() => setTopicMenuOpen(o => !o)}
+              title="Choose a topic — new thoughts drift into its cluster"
+              className="flex items-center gap-1.5 shrink-0 rounded-full px-3 h-8.5 text-[13px] font-medium border max-w-[140px] transition-colors"
+              style={{
+                background: theme === 'light' ? '#F3F4F6' : '#2A2A2A',
+                borderColor: theme === 'light' ? 'rgba(0,0,0,0.12)' : 'rgba(255,255,255,0.15)',
+                color: theme === 'light' ? '#1B1B1B' : '#EAEAEA'
+              }}>
+              <span className="shrink-0">◆</span>
+              <span className="truncate">+ Topic</span>
+            </button>
+          )}
+          
+          {slashQuery !== null && (
+            <div className={`absolute bottom-full mb-2 left-0 w-64 rounded-xl shadow-2xl border overflow-hidden z-50 flex flex-col max-h-48 overflow-y-auto py-1 backdrop-blur-md select-none pointer-events-auto ${theme === 'light' ? 'bg-white/95 border-neutral-300' : 'bg-neutral-900/95 border-neutral-700/80'}`}
+                 onPointerDown={e => e.stopPropagation()}
+                 onClick={e => e.stopPropagation()}
+                 onDoubleClick={e => e.stopPropagation()}>
+              {(() => {
+                const filteredTopics = w.nodes.filter(n => n.isTopic && n.title.toLowerCase().includes(slashQuery));
+                if (filteredTopics.length === 0) {
+                  return <div className="px-3 py-2 text-[13px] text-neutral-500 italic">No matching topics...</div>;
+                }
+                return filteredTopics.map((topic, idx) => (
+                  <div key={topic.id}
+                       className="px-3 py-1.5 text-[13px] font-medium cursor-pointer transition-colors"
+                       onClick={() => {
+                         const newVal = input.replace(/(?:^|\s)\/[a-zA-Z0-9_-]*$/, '');
+                         setInput(newVal);
+                         setSlashQuery(null);
+                         useStore.getState().setActiveTopic(topic.id);
+                       }}
+                       style={{
+                         background: idx === slashIndex 
+                           ? (theme === 'light' ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.1)') 
+                           : 'transparent',
+                         color: idx === slashIndex
+                           ? (theme === 'light' ? '#000' : '#FFF')
+                           : (theme === 'light' ? '#444' : '#CCC')
+                       }}>
+                    <span className="text-neutral-500 mr-2">◆</span>
+                    {topic.title}
+                  </div>
+                ));
+              })()}
+            </div>
+          )}
+
+          <input id="thought-input" autoFocus value={input} onChange={handleInputChange} onKeyDown={handleInputKeyDown} onPaste={onPaste}
+            placeholder={
+              activeSorterTopicId
+                ? `Quick-Sorter active for “${byId(activeSorterTopicId)?.title}”…`
+                : activeTopicNode
+                  ? `Adding to “${activeTopicNode.title}”…`
+                  : 'Drop a thought…'
+            } autoComplete="off"
             className="flex-1 bg-transparent text-inherit placeholder-neutral-500 text-[15px] min-w-0 font-medium outline-none px-1" />
           {speechSupported && (
             <button type="button" onClick={toggleVoice} title={listening ? 'Stop voice capture' : 'Speak thoughts'}
@@ -2097,6 +2505,65 @@ Generate exactly 3 short, concrete follow-on ideas that develop this thought. Ea
         </p>
       </form>
 
+      {/* bottom-right AI Topic suggestions */}
+      {(() => {
+        const looseIds = new Set(w.nodes.filter(n => !n.isTopic && !n.isHub && !n.topicId).map(n => n.id));
+        const activeSuggestions = useStore.getState().aiTopicSuggestions.map(sugg => {
+          const members = (sugg.thoughtIds || []).filter(id => looseIds.has(id));
+          if (members.length === 0) return null;
+          
+          const exists = w.nodes.some(n => (n.isHub || n.isTopic) && n.title && n.title.toLowerCase() === sugg.topicName.toLowerCase());
+          const minRequired = exists ? 1 : 5;
+          
+          if (members.length >= minRequired) {
+            const count = members.length;
+            const title = sugg.topicName;
+            const text = exists
+              ? `Add ${count} thought${count > 1 ? 's' : ''} to '${title}'`
+              : `Group ${count} thoughts into '${title}'`;
+              
+            return { ...sugg, members, text };
+          }
+          return null;
+        }).filter(Boolean);
+
+        if (pureDump || activeSuggestions.length === 0) return null;
+        return (
+          <div data-ui className="absolute bottom-6 right-6 z-50 flex flex-col items-end gap-2">
+            {activeSuggestions.map((sugg) => (
+              <div key={sugg.id}
+                   className="glass flex items-center gap-3 px-4 py-2 rounded-full cursor-pointer border border-neutral-700/50 hover:bg-white/5 hover:scale-[1.02] hover:border-amber-400/40 transition-all duration-200 shadow-lg animate-pop-in"
+                   onMouseEnter={() => setHoveredSuggThoughtIds(new Set(sugg.thoughtIds))}
+                   onMouseLeave={() => setHoveredSuggThoughtIds(null)}
+                   onClick={() => {
+                     setHoveredSuggThoughtIds(null);
+                     const t = createTopic(sugg.topicName);
+                     if (t) {
+                       toggleVacuumPreview(t);
+                       useStore.getState().setAiTopicSuggestions(
+                         useStore.getState().aiTopicSuggestions.filter(s => s.id !== sugg.id)
+                       );
+                     }
+                   }}>
+                <SparkIcon size={14} className="text-amber-400 shrink-0" />
+                <span className="text-[13px] font-semibold text-neutral-100 whitespace-nowrap">{sugg.text}</span>
+                <button
+                  className="p-1 ml-1 rounded-full text-neutral-500 hover:text-neutral-200 hover:bg-neutral-700/50 transition-colors shrink-0"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setHoveredSuggThoughtIds(null);
+                    useStore.getState().setAiTopicSuggestions(
+                      useStore.getState().aiTopicSuggestions.filter(s => s.id !== sugg.id)
+                    );
+                  }}>
+                  <XIcon size={11} />
+                </button>
+              </div>
+            ))}
+          </div>
+        );
+      })()}
+
       {/* edit modal */}
       <EditThoughtModal 
         modalNode={modalNode}
@@ -2105,11 +2572,13 @@ Generate exactly 3 short, concrete follow-on ideas that develop this thought. Ea
         pushUndo={pushUndo}
         worldRef={worldRef}
         bump={bump}
+        persist={persist}
         deleteNodes={deleteNodes}
+        onClose={focusInput}
       />
 
       {/* settings modal */}
-      <SettingsModal onClearLastAIHash={() => { lastAIHashRef.current = ''; }} />
+      <SettingsModal onApiKeySet={() => { lastAIHashRef.current = ''; runAI(); }} onClose={focusInput} />
 
       <Sidebar 
         sessionList={sessionList} 
@@ -2120,10 +2589,13 @@ Generate exactly 3 short, concrete follow-on ideas that develop this thought. Ea
         duplicateSession={duplicateSession} 
         deleteSession={deleteSession} 
         onCreateNewProject={() => { 
-          const newW = blankWorld(); 
-          newW.name = "New Project"; 
-          switchWorld(newW); 
-        }} 
+          createProject("New Project");
+          useStore.getState().setProjects(loadProjects());
+        }}
+        renameProject={renameProject}
+        deleteProject={deleteProjectHandler}
+        onCreateCanvasInProject={newCanvas}
+        moveCanvasToProject={moveCanvasToProject}
       />
     </div>
   );

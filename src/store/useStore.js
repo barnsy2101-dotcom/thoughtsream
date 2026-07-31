@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { LS_APIKEY } from '../utils/constants';
+import { loadProjects } from '../utils/storage';
 
 export const useStore = create((set) => ({
   theme: localStorage.getItem('ts_theme') || 'dark',
@@ -15,8 +16,8 @@ export const useStore = create((set) => ({
   modalId: null,
   setModalId: (val) => set({ modalId: val }),
 
-  activeSugg: null,
-  setActiveSugg: (val) => set({ activeSugg: val }),
+  aiTopicSuggestions: [],
+  setAiTopicSuggestions: (val) => set({ aiTopicSuggestions: val }),
 
   activeLink: null,
   setActiveLink: (val) => set({ activeLink: val }),
@@ -125,4 +126,13 @@ export const useStore = create((set) => ({
 
   unexportedArchiveAlert: null,
   setUnexportedArchiveAlert: (val) => set({ unexportedArchiveAlert: val }),
+
+  exportSidebarOpen: false,
+  setExportSidebarOpen: (val) => set({ exportSidebarOpen: val }),
+
+  draftOutline: [],
+  setDraftOutline: (val) => set({ draftOutline: val }),
+
+  projects: loadProjects(),
+  setProjects: (val) => set({ projects: val }),
 }));

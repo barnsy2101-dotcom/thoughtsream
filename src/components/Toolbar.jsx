@@ -22,6 +22,7 @@ export function Toolbar({ zoomBy, zoomToFit, undo, redo, undoStackLength, redoSt
         className="ghost-btn text-neutral-300 disabled:text-neutral-700 rounded-lg p-2"><UndoIcon size={15} /></button>
       <button onClick={redo} title="Redo (⇧⌘Z)" disabled={!redoStackLength}
         className="ghost-btn text-neutral-300 disabled:text-neutral-700 rounded-lg p-2"><RedoIcon size={15} /></button>
+      {/*
       <div className="w-6 h-px bg-neutral-600/40 my-1" />
       <button onClick={() => setTimerMenuOpen(!timerMenuOpen)} title="Study Timer"
         className={'ghost-btn rounded-lg p-2 relative ' + (timerActive || timerMenuOpen ? 'text-amber-300 bg-amber-500/10' : 'text-neutral-300')}>
@@ -31,6 +32,7 @@ export function Toolbar({ zoomBy, zoomToFit, undo, redo, undoStackLength, redoSt
       <div className="w-6 h-px bg-neutral-600/40 my-1" />
       <button onClick={() => { if (!replaying && nodesLength) { zoomToFit(); setReplayIdx(0); } }} title="Replay session"
         className={'ghost-btn rounded-lg p-2 ' + (replaying ? 'text-neutral-100 font-bold' : 'text-neutral-300')}><PlayIcon size={15} /></button>
+      */}
       <button onClick={() => runAI()} title="Synthesize now"
         className={'ghost-btn rounded-lg p-2 ' + (aiBusy ? 'text-neutral-100' : 'text-neutral-300')}>
         <span className={aiBusy ? 'spin inline-flex' : 'inline-flex'}><SparkIcon size={15} /></span>

@@ -20,7 +20,10 @@ export function TimerMenu({ startTimer }) {
   if (!timerMenuOpen) return null;
 
   return (
-    <div data-ui className="glass absolute right-14 top-1/2 -translate-y-1/2 p-3 z-40 rounded-2xl w-48 animate-pop-in" onPointerDown={e => e.stopPropagation()}>
+    <div data-ui className="bg-neutral-900/95 backdrop-blur-md border border-neutral-700/80 shadow-2xl absolute right-14 top-1/2 -translate-y-1/2 p-3 z-50 rounded-2xl w-48 animate-pop-in" 
+      onPointerDown={e => e.stopPropagation()}
+      onClick={e => e.stopPropagation()}
+      onDoubleClick={e => e.stopPropagation()}>
       <div className="flex justify-between items-center mb-3">
         <h3 className="font-display font-semibold text-neutral-200 text-sm">Study Timer</h3>
         <button onClick={() => setTimerMenuOpen(false)} className="text-neutral-500 hover:text-neutral-300"><XIcon size={14}/></button>
