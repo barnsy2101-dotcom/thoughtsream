@@ -306,6 +306,10 @@ function App() {
 
   const [moveTopicMenuOpen, setMoveTopicMenuOpen] = useState(false);
 
+  useEffect(() => {
+    setMoveTopicMenuOpen(false);
+  }, [selIds]);
+
   const transferSelectedToTopic = (targetTopicId, targetColor) => {
     const selectedIds = useStore.getState().selIds;
     w.nodes.forEach(n => {
@@ -1597,6 +1601,7 @@ Generate exactly 3 short, concrete follow-on ideas that develop this thought. Ea
         setMenuOpen(false);
         setTopicMenuOpen(false);
         setTimerMenuOpen(false);
+        setMoveTopicMenuOpen(false);
 
         // 4. Cancel any ongoing mouse drag, pan, or marquee box operations
         dragRef.current = null;
@@ -1636,6 +1641,7 @@ Generate exactly 3 short, concrete follow-on ideas that develop this thought. Ea
     setMenuOpen(false);
     setTopicMenuOpen(false);
     setTimerMenuOpen(false);
+    setMoveTopicMenuOpen(false);
     if (e.target.closest('[data-bubble]') || e.target.closest('[data-ui]')) return;
     if (e.shiftKey) {
       marqueeStartRef.current = { sx: e.clientX, sy: e.clientY };
