@@ -312,11 +312,28 @@ function App() {
 
   const transferSelectedToTopic = (targetTopicId, targetColor) => {
     const selectedIds = useStore.getState().selIds;
+    
+    let targetX, targetY;
+    if (targetTopicId) {
+      const targetTopic = w.nodes.find(node => node.id === targetTopicId);
+      if (targetTopic) {
+        targetX = targetTopic.x;
+        targetY = targetTopic.y;
+      }
+    }
+
     w.nodes.forEach(n => {
       if (selectedIds.has(n.id) && !n.isTopic && !n.isHub) {
         n.topicId = targetTopicId || null;
         if (targetTopicId && targetColor !== undefined) {
           n.color = targetColor;
+          
+          if (targetX !== undefined && targetY !== undefined) {
+            n.x = targetX + (Math.random() - 0.5) * 50;
+            n.y = targetY + (Math.random() - 0.5) * 50;
+            n.vx = 0;
+            n.vy = 0;
+          }
         }
       }
     });
