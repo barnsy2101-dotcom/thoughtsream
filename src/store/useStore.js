@@ -135,4 +135,10 @@ export const useStore = create((set) => ({
 
   projects: loadProjects(),
   setProjects: (val) => set({ projects: val }),
+
+  autoAIEnabled: localStorage.getItem('ts_auto_ai') !== 'false',
+  setAutoAIEnabled: (val) => {
+    localStorage.setItem('ts_auto_ai', val);
+    set({ autoAIEnabled: val });
+  },
 }));

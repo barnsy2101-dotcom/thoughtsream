@@ -12,7 +12,7 @@ import {
   ZapIcon, AlarmIcon, SendIcon, PlusIcon, MinusIcon, LibraryIcon, XIcon, 
   TrashIcon, LinkIcon, CopyIcon, SparkIcon, CheckIcon, UndoIcon, RedoIcon, 
   FitIcon, SearchIcon, MicIcon, PlayIcon, GearIcon, DownloadIcon, FoldIcon, 
-  UnfoldIcon, ZapIcon_, PinIcon, MsgIcon, ClockIcon, MagnetIcon, ChevronDownIcon 
+  UnfoldIcon, ZapIcon_, PinIcon, MsgIcon, ClockIcon, MagnetIcon, ChevronDownIcon, ArrowUpRightIcon 
 } from './components/icons';
 
 import { useStore } from './store/useStore';
@@ -30,7 +30,7 @@ import { ExportSidebar } from './components/ExportSidebar';
 
 const renderCanvasDOM = (w, v, hidden, q, held, els) => {
   const { nodes, links } = w;
-  const { worldElRef, bgRef, nodeEls, zoneEls, pathEls, hitEls, labelEls, badgeEls, linkCardRef, previewRef, threadLineRef } = els;
+  const { worldElRef, bgRef, nodeEls, zoneEls, pathEls, hitEls, labelEls, badgeEls, linkCardRef, previewRef, threadLineRef, nodeBounds } = els;
   
   if (worldElRef.current) worldElRef.current.style.transform = `translate(${v.x}px, ${v.y}px) scale(${v.s})`;
   if (bgRef.current) {
@@ -92,28 +92,49 @@ const renderCanvasDOM = (w, v, hidden, q, held, els) => {
     zel.style.transform = `translate(${n.x}px, ${n.y}px) translate(-50%, -50%)`;
   }
   const curve = (a, b, isArrow) => {
-    const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
-    const dx = b.x - a.x, dy = b.y - a.y;
-    const d = Math.hypot(dx, dy) || 1;
-    const off = Math.min(d * 0.14, 46);
-
+    let dx = b.x - a.x, dy = b.y - a.y;
+    let d = Math.hypot(dx, dy) || 1;
+    let mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+    let off = Math.min(d * 0.14, 46);
+    
+    let cx = mx - (dy / d) * off;
+    let cy = my + (dx / d) * off;
+    
     let bx = b.x, by = b.y;
-    if (isArrow) {
-      // Pull the endpoint back ~38px along the straight direction so arrow sits outside node
-      const pullback = 38;
-      bx = b.x - (dx / d) * pullback;
-      by = b.y - (dy / d) * pullback;
+
+    if (isArrow !== false) {
+      let tx = b.x - cx, ty = b.y - cy;
+      let td = Math.hypot(tx, ty) || 1;
+      let nx = tx / td, ny = ty / td;
+      
+      let pullback = 74;
+      if (nodeBounds && nodeBounds.current[b.id]) {
+        const bounds = nodeBounds.current[b.id];
+        const w = Math.max(bounds.w, 30);
+        const h = Math.max(bounds.h, 20);
+        const absNx = Math.abs(nx) || 0.001;
+        const absNy = Math.abs(ny) || 0.001;
+        const r = Math.min(w / absNx, h / absNy);
+        pullback = r + 10;
+      } else {
+        pullback = (b.r || 60) + 14;
+      }
+      
+      if (pullback > d - 10) pullback = Math.max(0, d - 10);
+      
+      bx = b.x - nx * pullback;
+      by = b.y - ny * pullback;
     }
 
-    return `M ${a.x} ${a.y} Q ${mx - dy / d * off} ${my + dx / d * off} ${bx} ${by}`;
+    return `M ${a.x} ${a.y} Q ${cx} ${cy} ${bx} ${by}`;
   };
   const byId = (id) => nodes.find(n => n.id === id);
   for (const l of (links || [])) {
     const a = byId(l.a), b = byId(l.b);
     const vis = a && b && !hidden.has(a.id) && !hidden.has(b.id);
     const el = pathEls.current[l.id], hit = hitEls.current[l.id], lab = labelEls.current[l.id];
-    if (el) { el.style.display = vis ? '' : 'none'; if (vis) el.setAttribute('d', curve(a, b, l.isArrow)); }
-    if (hit) { hit.style.display = vis ? '' : 'none'; if (vis) hit.setAttribute('d', curve(a, b, l.isArrow)); }
+    if (el) { el.style.display = vis ? '' : 'none'; if (vis) el.setAttribute('d', curve(a, b, l.isArrow !== false)); }
+    if (hit) { hit.style.display = vis ? '' : 'none'; if (vis) hit.setAttribute('d', curve(a, b, l.isArrow !== false)); }
     if (lab) { lab.style.display = vis && l.label ? '' : 'none'; if (vis) lab.style.transform = `translate(${(a.x + b.x) / 2}px, ${(a.y + b.y) / 2 + 10}px) translate(-50%, -50%)`; }
   }
   if (useStore.getState().activeLink && linkCardRef.current) {
@@ -124,7 +145,32 @@ const renderCanvasDOM = (w, v, hidden, q, held, els) => {
   if (previewRef.current) {
     const src = useStore.getState().linkFrom && byId(useStore.getState().linkFrom);
     if (src) {
-      previewRef.current.setAttribute('d', `M ${src.x} ${src.y} L ${els.mouseRef.current.x} ${els.mouseRef.current.y}`);
+      const mx = els.mouseRef.current.x;
+      const my = els.mouseRef.current.y;
+      
+      let hoverTarget = null;
+      for (const n of nodes) {
+        if (n.id !== src.id && !hidden.has(n.id)) {
+          const bounds = nodeBounds.current[n.id];
+          const w = bounds ? Math.max(bounds.w, 30) : 60;
+          const h = bounds ? Math.max(bounds.h, 20) : 60;
+          if (Math.abs(mx - n.x) < w && Math.abs(my - n.y) < h) {
+            hoverTarget = n;
+            break;
+          }
+        }
+      }
+      
+      if (hoverTarget) {
+        previewRef.current.setAttribute('d', curve(src, hoverTarget, true));
+      } else {
+        const dx = mx - src.x, dy = my - src.y;
+        const d = Math.hypot(dx, dy) || 1;
+        const nx = dx / d, ny = dy / d;
+        const px = mx - nx * 8;
+        const py = my - ny * 8;
+        previewRef.current.setAttribute('d', `M ${src.x} ${src.y} L ${px} ${py}`);
+      }
       previewRef.current.style.display = '';
     } else previewRef.current.style.display = 'none';
   }
@@ -193,6 +239,7 @@ function App() {
   const setInput = useStore(s => s.setInput);
   const [sessionsRev, setSessionsRev] = useState(0);
   const [slashQuery, setSlashQuery] = useState(null);
+  const [slashIsDouble, setSlashIsDouble] = useState(false);
   const [slashIndex, setSlashIndex] = useState(0);
   const query = useStore(s => s.query);
   const setQuery = useStore(s => s.setQuery);
@@ -312,28 +359,33 @@ function App() {
 
   const transferSelectedToTopic = (targetTopicId, targetColor) => {
     const selectedIds = useStore.getState().selIds;
+    if (selectedIds.size === 0) return;
+    const w = worldRef.current;
     
-    let targetX, targetY;
+    let targetTopic = null;
     if (targetTopicId) {
-      const targetTopic = w.nodes.find(node => node.id === targetTopicId);
-      if (targetTopic) {
-        targetX = targetTopic.x;
-        targetY = targetTopic.y;
-      }
+      targetTopic = w.nodes.find(node => node.id === targetTopicId);
     }
-
+    
     w.nodes.forEach(n => {
       if (selectedIds.has(n.id) && !n.isTopic && !n.isHub) {
         n.topicId = targetTopicId || null;
-        if (targetTopicId && targetColor !== undefined) {
-          n.color = targetColor;
-          
-          if (targetX !== undefined && targetY !== undefined) {
-            n.x = targetX + (Math.random() - 0.5) * 50;
-            n.y = targetY + (Math.random() - 0.5) * 50;
-            n.vx = 0;
-            n.vy = 0;
-          }
+        if (targetColor !== undefined) n.color = targetColor;
+        
+        if (targetTopic) {
+          // INSTANT TELEPORT: Place them perfectly into the aura
+          n.sleeping = false;
+          n.userMoved = false;
+          n.pinned = false;
+          const angle = Math.random() * Math.PI * 2;
+          const R = targetTopic.r + n.r + 30;
+          n.offsetX = Math.round(Math.cos(angle) * R);
+          n.offsetY = Math.round(Math.sin(angle) * R);
+          n.x = targetTopic.x + n.offsetX;
+          n.y = targetTopic.y + n.offsetY;
+          n.vx = 0;
+          n.vy = 0;
+          spawnBurst(n.x, n.y);
         }
       }
     });
@@ -632,6 +684,14 @@ Rules:
         const R = (targetTopic ? targetTopic.r : 74) + n.r + 65 + (memberIndex % 2) * (totalNew > 4 ? 35 : 0);
         n.offsetX = Math.round(Math.cos(angle) * R);
         n.offsetY = Math.round(Math.sin(angle) * R);
+        
+        if (targetTopic) {
+          n.x = targetTopic.x + n.offsetX;
+          n.y = targetTopic.y + n.offsetY;
+          n.vx = 0;
+          n.vy = 0;
+        }
+        
         memberIndex++;
         spawnBurst(n.x, n.y);
       }
@@ -668,10 +728,16 @@ Rules:
       n.sleeping = false;
       n.userMoved = false;
       n.pinned = false;
-      n.vx = 0; n.vy = 0;
-      n.isPulling = true;
-      n.offsetX = undefined;
-      n.offsetY = undefined;
+      const angle = Math.random() * Math.PI * 2;
+      const R = targetTopic.r + n.r + 30;
+      n.offsetX = Math.round(Math.cos(angle) * R);
+      n.offsetY = Math.round(Math.sin(angle) * R);
+      n.x = targetTopic.x + n.offsetX;
+      n.y = targetTopic.y + n.offsetY;
+      n.vx = 0; 
+      n.vy = 0;
+      
+      n.isPulling = false;
     }
     
     setSelIds(new Set());
@@ -815,7 +881,9 @@ Rules:
     w.updated = Date.now();
     bump();
     clearTimeout(addThought._t);
-    addThought._t = setTimeout(() => runAI(), 8000);
+    addThought._t = setTimeout(() => {
+      if (useStore.getState().autoAIEnabled) runAI();
+    }, 8000);
     return n;
   }, []);
   useEffect(() => {
@@ -997,7 +1065,9 @@ Rules:
     }
   }, []);
   useEffect(() => {
-    const t = setInterval(() => runAI(), apiKey ? 60000 : 7000);
+    const t = setInterval(() => {
+      if (useStore.getState().autoAIEnabled) runAI();
+    }, apiKey ? 60000 : 7000);
     return () => clearInterval(t);
   }, [runAI, apiKey]);
 
@@ -1075,13 +1145,13 @@ Generate exactly 3 short, concrete follow-on ideas that develop this thought. Ea
   };
 
   /* ---------- links ---------- */
-  const createLink = (a, b, skipUndo) => {
+  const createLink = (a, b, skipUndo, opts = {}) => {
     const w = worldRef.current;
     if (a === b) return;
     const k = pairKey(a, b);
     if (w.links.some(l => pairKey(l.a, l.b) === k)) return;
     if (!skipUndo) pushUndo();
-    w.links.push({ id: uid(), a, b });
+    w.links.push({ id: uid(), a, b, ...opts });
     w.updated = Date.now();
     bump();
   };
@@ -1375,7 +1445,7 @@ Generate exactly 3 short, concrete follow-on ideas that develop this thought. Ea
       const els = {
         worldElRef, bgRef, nodeEls, zoneEls, pathEls, hitEls, labelEls, badgeEls, 
         suggCardRef, linkCardRef, previewRef, threadLineRef, mouseRef,
-        pullTetherGroupRef, sourceTetherGroupRef,
+        pullTetherGroupRef, sourceTetherGroupRef, nodeBounds,
         screenToWorld: (x, y) => ({ x: (x - v.x) / v.s, y: (y - v.y) / v.s })
       };
       
@@ -1592,6 +1662,8 @@ Generate exactly 3 short, concrete follow-on ideas that develop this thought. Ea
 
       if (e.key === 'Escape') {
         e.preventDefault();
+        setSlashQuery(null);
+        setSlashIsDouble(false);
 
         // 1. Blur any focused text input or textarea
         if (document.activeElement && typeof document.activeElement.blur === 'function') {
@@ -1625,6 +1697,13 @@ Generate exactly 3 short, concrete follow-on ideas that develop this thought. Ea
         panRef.current = null;
         marqueeStartRef.current = null;
         setMarquee(null);
+        linkDragRef.current = null;
+        if (previewRef.current) previewRef.current.style.display = 'none';
+
+        // 5. Return focus to the main input bar
+        setTimeout(() => {
+          document.getElementById('thought-input')?.focus();
+        }, 10);
 
         return;
       }
@@ -1670,6 +1749,21 @@ Generate exactly 3 short, concrete follow-on ideas that develop this thought. Ea
   };
   const onBubbleDown = (node) => (e) => {
     e.stopPropagation();
+    const currentState = useStore.getState();
+    if (currentState.linkFrom === 'toolbar_active') {
+      setLinkFrom(node.id);
+      return;
+    }
+    if (currentState.linkFrom && currentState.linkFrom !== 'toolbar_active' && currentState.linkFrom !== node.id) {
+      const exists = worldRef.current.links.some(l => 
+        (l.a === currentState.linkFrom && l.b === node.id) || (l.a === node.id && l.b === currentState.linkFrom)
+      );
+      if (!exists) {
+        createLink(currentState.linkFrom, node.id, false, { isArrow: true });
+      }
+      setLinkFrom(null);
+      return;
+    }
     if (e.metaKey || e.ctrlKey || e.shiftKey) {
       setSelIds(prev => {
         const next = new Set(prev);
@@ -1689,8 +1783,42 @@ Generate exactly 3 short, concrete follow-on ideas that develop this thought. Ea
       return;
     }
     const p = screenToWorld(e.clientX, e.clientY);
-    const groupIds = useStore.getState().selIds.has(node.id) ? useStore.getState().selIds : new Set([node.id]);
-    const group = [...groupIds].map(byId).filter(Boolean).map(n => ({ n, offX: p.x - n.x, offY: p.y - n.y }));
+    const baseGroupIds = useStore.getState().selIds.has(node.id) 
+      ? new Set(useStore.getState().selIds) 
+      : new Set([node.id]);
+    
+    // CONSTELLATION DRAG: Recursively find all downstream connected bubbles
+    const w = worldRef.current;
+    const groupIds = new Set(baseGroupIds);
+    
+    const addDescendants = (parentId) => {
+      // 1. Grab link descendants (arrows)
+      w.links.forEach(l => {
+        if (l.a === parentId && !groupIds.has(l.b)) {
+          groupIds.add(l.b);
+          addDescendants(l.b); // Traverse deeper
+        }
+      });
+      
+      // 2. Grab topic descendants (bubbles inside the topic's aura)
+      w.nodes.forEach(n => {
+        if (n.topicId === parentId && !groupIds.has(n.id)) {
+          groupIds.add(n.id);
+          addDescendants(n.id); // Traverse deeper in case they have linked arrows
+        }
+      });
+    };
+    
+    // Start traversal for all explicitly selected/clicked nodes
+    const initialIds = [...groupIds];
+    initialIds.forEach(id => addDescendants(id));
+    
+    const group = [...groupIds].map(byId).filter(Boolean).map(n => ({ 
+      n, 
+      offX: p.x - n.x, 
+      offY: p.y - n.y 
+    }));
+    
     dragRef.current = { node, group, sx: e.clientX, sy: e.clientY, moved: false };
   };
   /* ---------- input helpers ---------- */
@@ -1713,24 +1841,89 @@ Generate exactly 3 short, concrete follow-on ideas that develop this thought. Ea
   const handleInputChange = (e) => {
     const val = e.target.value;
     setInput(val);
+
+    const doubleSlashMatch = val.match(/(?:^|\s)\/\/(.*)$/);
+    if (doubleSlashMatch) {
+      setSlashQuery(doubleSlashMatch[1]);
+      setSlashIsDouble(true);
+      setSlashIndex(0);
+      return;
+    }
+
     const slashMatch = val.match(/(?:^|\s)\/([a-zA-Z0-9_-]*)$/);
     if (slashMatch) {
       setSlashQuery(slashMatch[1].toLowerCase());
+      setSlashIsDouble(false);
       setSlashIndex(0);
-    } else {
-      setSlashQuery(null);
+      return;
     }
+
+    setSlashQuery(null);
+    setSlashIsDouble(false);
   };
 
   const handleInputKeyDown = (e) => {
-
     // If the pull/vacuum mode is active, Enter confirms the pull
     if (e.key === 'Enter' && useStore.getState().vacuumTopicId) {
       e.preventDefault();
       confirmVacuum();
       return;
     }
+
+    if (activeTopic) {
+      const isArrow = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key);
+      
+      // Trigger if input is empty OR if Option/Alt is held down
+      if (isArrow && (input === '' || e.altKey)) {
+        e.preventDefault();
+        const currentTopicNode = worldRef.current.nodes.find(n => n.id === activeTopic);
+        if (!currentTopicNode) return;
+
+        // Filter to only other topics
+        const otherTopics = worldRef.current.nodes.filter(n => n.isTopic && n.id !== activeTopic);
+        if (otherTopics.length === 0) return;
+
+        let candidates = [];
+        if (e.key === 'ArrowRight') candidates = otherTopics.filter(n => n.x > currentTopicNode.x);
+        if (e.key === 'ArrowLeft') candidates = otherTopics.filter(n => n.x < currentTopicNode.x);
+        if (e.key === 'ArrowDown') candidates = otherTopics.filter(n => n.y > currentTopicNode.y);
+        if (e.key === 'ArrowUp') candidates = otherTopics.filter(n => n.y < currentTopicNode.y);
+
+        if (candidates.length > 0) {
+          // Find the closest candidate in that direction
+          let closest = candidates[0];
+          let minTargetDist = Infinity;
+          
+          for (const c of candidates) {
+            const dist = Math.hypot(c.x - currentTopicNode.x, c.y - currentTopicNode.y);
+            if (dist < minTargetDist) {
+              minTargetDist = dist;
+              closest = c;
+            }
+          }
+          
+          useStore.getState().setActiveTopic(closest.id);
+        }
+        return;
+      }
+    }
     if (slashQuery !== null) {
+      if (slashIsDouble) {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          if (slashQuery.trim()) {
+            const t = createTopic(slashQuery.trim());
+            if (t) {
+              const newVal = input.replace(/(?:^|\s)\/\/.*$/, '');
+              setInput(newVal);
+              setSlashQuery(null);
+              setSlashIsDouble(false);
+            }
+          }
+        }
+        return;
+      }
+
       const filteredTopics = worldRef.current.nodes.filter(n => n.isTopic && n.title.toLowerCase().includes(slashQuery));
       if (e.key === 'ArrowDown') {
         e.preventDefault();
@@ -1785,8 +1978,8 @@ Generate exactly 3 short, concrete follow-on ideas that develop this thought. Ea
         ))}
         <svg className="absolute" style={{ overflow: 'visible', width: 1, height: 1 }}>
           <defs>
-            <marker id="arrow" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="6" markerHeight="6" orient="auto">
-              <path d="M 0 0 L 10 5 L 0 10 z" fill="rgba(160,160,160,0.6)" />
+            <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M 0 1 L 10 5 L 0 9 z" fill={theme === 'light' ? '#1B1B1B' : '#EAEAEA'} />
             </marker>
           </defs>
           {w.links.filter(l => {
@@ -1799,7 +1992,7 @@ Generate exactly 3 short, concrete follow-on ideas that develop this thought. Ea
           }).map(l => (
             <g key={l.id}>
               <path ref={el => { if (el) pathEls.current[l.id] = el; }}
-                className="link-path" fill="none" stroke="rgba(160,160,160,0.35)" strokeWidth="2" strokeLinecap="round" markerEnd={l.isArrow ? "url(#arrow)" : undefined} />
+                className="link-path" fill="none" stroke={theme === 'light' ? 'rgba(0,0,0,0.35)' : 'rgba(255,255,255,0.45)'} strokeWidth="2.5" strokeLinecap="round" markerEnd={(l.isArrow !== false) ? "url(#arrow)" : undefined} />
               <path ref={el => { if (el) hitEls.current[l.id] = el; }}
                 fill="none" stroke="transparent" strokeWidth="20" style={{ pointerEvents: 'stroke', cursor: 'pointer' }}
                 onPointerDown={e => e.stopPropagation()}
@@ -1808,7 +2001,7 @@ Generate exactly 3 short, concrete follow-on ideas that develop this thought. Ea
           ))}
 
           <path ref={previewRef} fill="none" stroke="rgba(220,220,220,0.65)" strokeWidth="2"
-            strokeDasharray="5 5" style={{ display: 'none', pointerEvents: 'none' }} />
+            strokeDasharray="5 5" style={{ display: 'none', pointerEvents: 'none' }} markerEnd="url(#arrow)" />
           <path ref={threadLineRef} fill="none" stroke="rgba(160,160,160,0.30)" strokeWidth="1.5"
             strokeDasharray="4 7" style={{ display: 'none', pointerEvents: 'none' }} />
           <g ref={sourceTetherGroupRef} style={{ pointerEvents: 'none' }} />
@@ -2036,17 +2229,7 @@ Generate exactly 3 short, concrete follow-on ideas that develop this thought. Ea
                     <span className="truncate font-semibold">{(() => { try { return new URL(n.metadata.url).hostname.replace('www.', ''); } catch(e) { return n.metadata.url; } })()}</span>
                   </a>
                 )}
-                <button data-ui
-                  onPointerDown={e => {
-                    e.stopPropagation(); e.preventDefault();
-                    setLinkFrom(n.id);
-                    linkDragRef.current = { from: n.id, moved: false, sx: e.clientX, sy: e.clientY };
-                  }}
-                  className="link-handle absolute -top-2 -right-2 w-7 h-7 rounded-full flex items-center justify-center text-neutral-200"
-                  style={{ background: 'rgba(30,41,59,0.95)', border: '1px solid rgba(255,255,255,0.25)', opacity: isSource ? 1 : undefined, touchAction: 'none' }}
-                  title={isSource ? 'Drag to a bubble to link · click again to cancel' : 'Drag to another bubble to link'}>
-                  <LinkIcon size={13} />
-                </button>
+                {/* Link handles removed for Toolbar Arrow Mode */ }
                 <button data-ui
                   onPointerDown={e => e.stopPropagation()}
                   onClick={e => { e.stopPropagation(); pushUndo(); n.pinned = !n.pinned; n.vx = 0; n.vy = 0; worldRef.current.updated = Date.now(); bump(); persist(); }}
@@ -2131,7 +2314,8 @@ Generate exactly 3 short, concrete follow-on ideas that develop this thought. Ea
       {(linkFrom || replaying || activeSorterTopicId) && (
         <div data-ui className="glass absolute top-20 left-1/2 -translate-x-1/2 rounded-full px-4 py-1.5 text-sm z-30 flex items-center gap-2">
           {replaying && <span className="text-neutral-200">Replaying your stream of thoughts…</span>}
-          {linkFrom && <span className="text-neutral-200">Drag onto a bubble to link — or tap one · Esc to cancel</span>}
+          {linkFrom === 'toolbar_active' && <span className="text-neutral-200"><span className="text-cyan-300 font-bold mr-1">↗ Arrow Mode:</span> Click any thought to set source (ESC to cancel)</span>}
+          {linkFrom && linkFrom !== 'toolbar_active' && <span className="text-neutral-200"><span className="text-cyan-300 font-bold mr-1">↗ Arrow Mode:</span> Click a target thought to connect (ESC to cancel)</span>}
           {!replaying && !linkFrom && activeSorterTopicId && (
             <>
               <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse shrink-0" />
@@ -2471,12 +2655,33 @@ Generate exactly 3 short, concrete follow-on ideas that develop this thought. Ea
                  onPointerDown={e => e.stopPropagation()}
                  onClick={e => e.stopPropagation()}
                  onDoubleClick={e => e.stopPropagation()}>
-              {(() => {
-                const filteredTopics = w.nodes.filter(n => n.isTopic && n.title.toLowerCase().includes(slashQuery));
-                if (filteredTopics.length === 0) {
-                  return <div className="px-3 py-2 text-[13px] text-neutral-500 italic">No matching topics...</div>;
-                }
-                return filteredTopics.map((topic, idx) => (
+              {slashIsDouble ? (
+                <div
+                  className="px-3 py-2 text-[13px] font-medium cursor-pointer transition-colors hover:bg-indigo-600/20"
+                  style={{ color: theme === 'light' ? '#1B1B1B' : '#EAEAEA' }}
+                  onClick={() => {
+                    if (slashQuery.trim()) {
+                      const t = createTopic(slashQuery.trim());
+                      if (t) {
+                        const newVal = input.replace(/(?:^|\s)\/\/.*$/, '');
+                        setInput(newVal);
+                        setSlashQuery(null);
+                        setSlashIsDouble(false);
+                      }
+                    }
+                  }}
+                >
+                  <span className="text-indigo-500 mr-2 font-bold">+</span>
+                  Create topic: <span className="font-bold">"{slashQuery || '...'}"</span>
+                  <div className="text-[10px] opacity-60 mt-0.5 ml-5">Press Enter to create</div>
+                </div>
+              ) : (
+                (() => {
+                  const filteredTopics = w.nodes.filter(n => n.isTopic && n.title.toLowerCase().includes(slashQuery));
+                  if (filteredTopics.length === 0) {
+                    return <div className="px-3 py-2 text-[13px] text-neutral-500 italic">No matching topics...</div>;
+                  }
+                  return filteredTopics.map((topic, idx) => (
                   <div key={topic.id}
                        className="px-3 py-1.5 text-[13px] font-medium cursor-pointer transition-colors"
                        onClick={() => {
@@ -2497,7 +2702,7 @@ Generate exactly 3 short, concrete follow-on ideas that develop this thought. Ea
                     {topic.title}
                   </div>
                 ));
-              })()}
+              })())}
             </div>
           )}
 

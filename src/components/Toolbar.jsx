@@ -9,6 +9,8 @@ export function Toolbar({ zoomBy, zoomToFit, undo, redo, undoStackLength, redoSt
   const setTimerMenuOpen = useStore(s => s.setTimerMenuOpen);
   const timerActive = useStore(s => s.timerActive);
   const aiBusy = useStore(s => s.aiBusy);
+  const linkFrom = useStore(s => s.linkFrom);
+  const setLinkFrom = useStore(s => s.setLinkFrom);
 
   const replaying = replayIdx !== null;
 
@@ -18,6 +20,15 @@ export function Toolbar({ zoomBy, zoomToFit, undo, redo, undoStackLength, redoSt
       <button onClick={() => zoomBy(0.8)} title="Zoom out" className="ghost-btn text-neutral-300 rounded-lg p-2"><MinusIcon size={15} /></button>
       <button onClick={zoomToFit} title="Zoom to fit" className="ghost-btn text-neutral-300 rounded-lg p-2"><FitIcon size={15} /></button>
       <div className="w-6 h-px bg-neutral-600/40 my-1" />
+      <button 
+        onClick={() => setLinkFrom(linkFrom ? null : 'toolbar_active')} 
+        title="Draw Arrow Tool (Click two bubbles to connect)" 
+        className={`ghost-btn rounded-lg p-2 transition-all ${
+          linkFrom ? 'bg-indigo-600 text-white font-bold shadow-md' : 'text-neutral-300'
+        }`}
+      >
+        ↗
+      </button>
       <button onClick={undo} title="Undo (⌘Z)" disabled={!undoStackLength}
         className="ghost-btn text-neutral-300 disabled:text-neutral-700 rounded-lg p-2"><UndoIcon size={15} /></button>
       <button onClick={redo} title="Redo (⇧⌘Z)" disabled={!redoStackLength}

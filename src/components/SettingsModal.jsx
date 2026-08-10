@@ -7,6 +7,8 @@ export function SettingsModal({ onApiKeySet, onClose }) {
   const setSettingsOpen = useStore(s => s.setSettingsOpen);
   const apiKey = useStore(s => s.apiKey);
   const setApiKey = useStore(s => s.setApiKey);
+  const autoAIEnabled = useStore(s => s.autoAIEnabled);
+  const setAutoAIEnabled = useStore(s => s.setAutoAIEnabled);
   const close = () => { setSettingsOpen(false); onClose?.(); };
 
   if (!settingsOpen) return null;
@@ -82,6 +84,20 @@ export function SettingsModal({ onApiKeySet, onClose }) {
               className="w-full h-10 bg-neutral-900/90 border border-neutral-700/70 focus:border-amber-500/60 focus:ring-2 focus:ring-amber-500/20 rounded-xl px-3.5 text-neutral-100 text-sm outline-none transition-all duration-150 placeholder:text-neutral-600 font-mono overflow-hidden leading-normal" 
             />
           </div>
+        </div>
+
+        {/* Auto-AI Toggle */}
+        <div className="flex items-center justify-between mt-2 pt-4 border-t border-neutral-700/50">
+          <div className="flex flex-col gap-0.5">
+            <label className="text-[11px] font-semibold uppercase tracking-wider text-neutral-400">Auto-AI Suggestions</label>
+            <span className="text-[11px] text-neutral-500">Run clustering automatically in the background</span>
+          </div>
+          <button
+            onClick={() => setAutoAIEnabled(!autoAIEnabled)}
+            className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${autoAIEnabled ? 'bg-emerald-500' : 'bg-neutral-700'}`}
+          >
+            <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${autoAIEnabled ? 'translate-x-4.5' : 'translate-x-1'}`} />
+          </button>
         </div>
 
         {/* Footer info note */}

@@ -111,110 +111,52 @@ export const applyLinkForces = (links, byId, hidden, fixed) => {
     
     let dx = b.x - a.x, dy = b.y - a.y;
     const d = Math.hypot(dx, dy) || 0.01;
-    const rest = a.r + b.r + 70;
-    const f = (d - rest) * 0.002;
-    dx /= d; dy /= d;
-    if (!fixed(a)) { a.vx += dx * f * d * 0.02; a.vy += dy * f * d * 0.02; }
-    if (!fixed(b)) { b.vx -= dx * f * d * 0.02; b.vy -= dy * f * d * 0.02; }
+    
+    const radiusA = a.r || 50;
+    const radiusB = b.r || 50;
+    
+    // Generous slack radius. Bubbles within this range experience ZERO spring force.
+    const rest = radiusA + radiusB + 800; 
+    
+    if (d > rest) {
+      const f = (d - rest) * 0.005; 
+      dx /= d; dy /= d;
+      if (!fixed(a)) { a.vx += dx * f * d * 0.02; a.vy += dy * f * d * 0.02; }
+      if (!fixed(b)) { b.vx -= dx * f * d * 0.02; b.vy -= dy * f * d * 0.02; }
+    }
   }
 };
 
 export const applyTopicGravity = (nodes, hidden, bounds, fixed, held) => {
   const topicNodes = nodes.filter(n => n.isTopic && !hidden.has(n.id));
+  
   for (const t of topicNodes) {
     const members = nodes.filter(n => n.topicId === t.id && !hidden.has(n.id));
     if (members.length === 0) continue;
 
-    const sortedMembers = [...members].sort((a, b) => a.id.localeCompare(b.id));
-    const N = sortedMembers.length;
+    // Calculate a dynamic boundary that expands as more bubbles are added
+    const baseRadius = t.r || 74;
+    const auraRadius = baseRadius + 100 + (members.length * 18);
 
-    for (let idx = 0; idx < N; idx++) {
-      const n = sortedMembers[idx];
-      if (n.offsetX === undefined || n.offsetY === undefined || n.offsetX === null || n.offsetY === null) {
-        const angle = (idx / N) * Math.PI * 2;
-        const burstOffset = (n.burstIndex || 0) * 110;
-        let R_x = t.r + n.r + 65;
-        let R_y = R_x;
-        if (bounds[n.id] && bounds[t.id]) {
-            R_x = bounds[n.id].w + bounds[t.id].w + 35 + (idx % 2) * (N > 4 ? 40 : 0) + burstOffset;
-            R_y = bounds[n.id].h + bounds[t.id].h + 35 + (idx % 2) * (N > 4 ? 40 : 0) + burstOffset;
-        } else {
-            R_x += (idx % 2) * (N > 4 ? 40 : 0) + burstOffset;
-            R_y += (idx % 2) * (N > 4 ? 40 : 0) + burstOffset;
-        }
-        n.offsetX = Math.round(Math.cos(angle) * R_x);
-        n.offsetY = Math.round(Math.sin(angle) * R_y);
-      }
+    for (const n of members) {
+      if (held(n)) continue;
 
-      let targetX = t.x + n.offsetX;
-      let targetY = t.y + n.offsetY;
-
-      if (n.isPulling) {
-        const dTopicX = t.x - n.x;
-        const dTopicY = t.y - n.y;
-        
-        let collisionDist = t.r + n.r + 5;
-        if (bounds[n.id] && bounds[t.id]) {
-            collisionDist = Math.max(bounds[n.id].w + bounds[t.id].w, bounds[n.id].h + bounds[t.id].h) + 5;
-        }
-        const distToTopic = Math.hypot(dTopicX, dTopicY);
-        // Bounce off the topic bubble by becoming solid once we hit its perimeter
-        if (distToTopic < collisionDist) {
-          n.isPulling = false;
-        } else {
-          targetX = t.x;
-          targetY = t.y;
-        }
-      }
-
-      const dx = targetX - n.x;
-      const dy = targetY - n.y;
+      const dx = t.x - n.x;
+      const dy = t.y - n.y;
       const dist = Math.hypot(dx, dy) || 0.01;
 
-      if (held(n) && n.isPulling) n.isPulling = false;
-
-      if (dist > 1.5 && !held(n) && !n.pinned && !n.userMoved) {
+      // SOFT FENCE: Only apply gravity if the bubble gets pushed OUTSIDE the aura boundary
+      if (dist > auraRadius && !fixed(n)) {
         if (n.sleeping) n.sleeping = false;
-      }
-
-      if (dist <= 1.5 && !held(n) && !n.pinned && !n.userMoved && !n._isColliding) {
-        n.x = targetX;
-        n.y = targetY;
-        n.vx = 0;
-        n.vy = 0;
-        n.sleeping = true;
-        n.isPulling = false;
-      } else if (!fixed(n)) {
-        if (n._isColliding && !held(t) && dist < 20) {
-          n.offsetX = Math.round(n.x - t.x);
-          n.offsetY = Math.round(n.y - t.y);
-        } else {
-          const pull = Math.min(Math.max(dist * 0.08, -3), 3);
-          n.vx += (dx / dist) * pull;
-          n.vy += (dy / dist) * pull;
-        }
-
-        let cdx = n.x - t.x;
-        let cdy = n.y - t.y;
-        if (Math.abs(cdx) < 0.01 && Math.abs(cdy) < 0.01) cdx = 0.01;
         
-        const padT = 8;
-        if (bounds[n.id] && bounds[t.id]) {
-          const rxT = bounds[n.id].w + bounds[t.id].w + padT;
-          const ryT = bounds[n.id].h + bounds[t.id].h + padT;
-          
-          const exT = cdx / rxT;
-          const eyT = cdy / ryT;
-          const edT = Math.hypot(exT, eyT) || 0.01;
-          
-          if (edT < 1.0) {
-            let pushOut = Math.min((1.0 - edT) * 0.05 * Math.max(rxT, ryT), 2.5);
-            n.vx += (exT / edT) * pushOut;
-            n.vy += (eyT / edT) * pushOut;
-            n._isColliding = true;
-          }
-        }
+        // Gentle spring force to nudge it back inside the boundary
+        const pullForce = (dist - auraRadius) * 0.015; 
+        n.vx += (dx / dist) * pullForce;
+        n.vy += (dy / dist) * pullForce;
       }
+      
+      // If it is inside the auraRadius, ZERO gravity is applied. 
+      // The collision engine will space them out, and they will naturally sit completely still.
     }
   }
 };
