@@ -13,6 +13,12 @@ export const useStore = create((set) => ({
   drawerOpen: false,
   setDrawerOpen: (val) => set({ drawerOpen: val }),
 
+  splitViewOpen: false,
+  setSplitViewOpen: (val) => set({ splitViewOpen: val }),
+
+  focusedOutlineId: null,
+  setFocusedOutlineId: (val) => set({ focusedOutlineId: val }),
+
   modalId: null,
   setModalId: (val) => set({ modalId: val }),
 

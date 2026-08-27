@@ -16,6 +16,7 @@ import {
 } from './components/icons';
 
 import { useStore } from './store/useStore';
+import { LiveOutline } from './components/LiveOutline';
 import { Sidebar } from './components/Sidebar';
 import { SettingsModal } from './components/SettingsModal';
 import { TopicMenu } from './components/TopicMenu';
@@ -78,7 +79,7 @@ const renderCanvasDOM = (w, v, hidden, q, held, els) => {
     if (!n.isTopic) continue;
     const zel = zoneEls.current[n.id];
     if (!zel) continue;
-    if (hidden.has(n.id)) { zel.style.display = 'none'; continue; }
+    if (hidden.has(n.id) || n.collapsed) { zel.style.display = 'none'; continue; }
 
     const members = nodes.filter(m => m.topicId === n.id && !hidden.has(m.id));
     let maxMemberR = n.r + 70;
@@ -224,6 +225,37 @@ const renderCanvasDOM = (w, v, hidden, q, held, els) => {
 function App() {
   const [, setRev] = useState(0);
   const bump = useCallback(() => setRev(r => r + 1), []);
+  const [inboxHeight, setInboxHeight] = useState(() => {
+    return parseInt(localStorage.getItem('ts_inboxHeight') || '180', 10);
+  });
+  const isDraggingInboxRef = useRef(false);
+
+  useEffect(() => {
+    const handleMove = (e) => {
+      if (!isDraggingInboxRef.current) return;
+      const newHeight = window.innerHeight - e.clientY;
+      if (newHeight >= 60 && newHeight <= window.innerHeight * 0.8) {
+        setInboxHeight(newHeight);
+      }
+    };
+    const handleUp = () => {
+      if (isDraggingInboxRef.current) {
+        isDraggingInboxRef.current = false;
+        document.body.style.cursor = '';
+      }
+    };
+    window.addEventListener('pointermove', handleMove);
+    window.addEventListener('pointerup', handleUp);
+    return () => {
+      window.removeEventListener('pointermove', handleMove);
+      window.removeEventListener('pointerup', handleUp);
+    };
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem('ts_inboxHeight', inboxHeight);
+  }, [inboxHeight]);
+
   const theme = useStore(s => s.theme);
   const setTheme = useStore(s => s.setTheme);
 
@@ -329,6 +361,10 @@ function App() {
   };
   const activeSorterTopicId = useStore(s => s.activeSorterTopicId);
   const setActiveSorterTopicId = useStore(s => s.setActiveSorterTopicId);
+  const splitViewOpen = useStore(s => s.splitViewOpen);
+  const focusedOutlineId = useStore(s => s.focusedOutlineId);
+  const setFocusedOutlineId = useStore(s => s.setFocusedOutlineId);
+  const setSplitViewOpen = useStore(s => s.setSplitViewOpen);
   const drawerTab = useStore(s => s.drawerTab);
   const setDrawerTab = useStore(s => s.setDrawerTab); // 'projects' | 'daily'
   const drawerSearch = useStore(s => s.drawerSearch);
@@ -784,6 +820,7 @@ Rules:
 
     setDraftOutline(outline);
     setExportSidebarOpen(true);
+    useStore.getState().setSplitViewOpen(false);
   }, [setDraftOutline, setExportSidebarOpen]);
 
   /* ---------- thought creation ---------- */
@@ -843,6 +880,7 @@ Rules:
       isHub: false, created: Date.now(), collapsed: false,
       isQuestion: /\?\s*$/.test(text),
       topicId,
+      inInbox: !topicId,
       released: true,
       metadata: opts.metadata || null,
       targetStreamId: opts.targetStreamId || null,
@@ -1197,7 +1235,14 @@ Generate exactly 3 short, concrete follow-on ideas that develop this thought. Ea
     const w = worldRef.current;
     const hidden = new Set();
     for (const n of w.nodes) {
+      if (n.inInbox) hidden.add(n.id);
       if (n.isHub && n.collapsed) hubMembers(n.id).forEach(id => { const m = byId(id); if (m && !m.isHub) hidden.add(id); });
+      
+      if (n.isTopic && n.collapsed) {
+        w.nodes.forEach(m => {
+          if (m.topicId === n.id) hidden.add(m.id);
+        });
+      }
     }
     if (useStore.getState().replayIdx !== null) {
       const sorted = [...w.nodes].sort((a, b) => a.created - b.created);
@@ -1227,6 +1272,64 @@ Generate exactly 3 short, concrete follow-on ideas that develop this thought. Ea
     const t = setInterval(persist, 2500);
     return () => clearInterval(t);
   }, [persist]);
+
+  const moveNodeAndChildrenToTopic = useCallback((nodeId, targetTopicId) => {
+    const w = worldRef.current;
+    const groupIds = new Set([nodeId]);
+    
+    // Recursively find all downstream connected bubbles
+    const addDescendants = (parentId) => {
+      w.links.forEach(l => {
+        if (l.a === parentId && !groupIds.has(l.b)) {
+          groupIds.add(l.b);
+          addDescendants(l.b);
+        }
+      });
+    };
+    addDescendants(nodeId);
+
+    const targetTopic = targetTopicId ? w.nodes.find(n => n.id === targetTopicId) : null;
+    
+    w.nodes.forEach(n => {
+      if (groupIds.has(n.id)) {
+        n.topicId = targetTopicId || null;
+        if (targetTopic) {
+          // INSTANT TELEPORT
+          n.sleeping = false;
+          n.userMoved = false;
+          n.pinned = false;
+          const angle = Math.random() * Math.PI * 2;
+          const R = targetTopic.r + n.r + 30;
+          n.offsetX = Math.round(Math.cos(angle) * R);
+          n.offsetY = Math.round(Math.sin(angle) * R);
+          n.x = targetTopic.x + n.offsetX;
+          n.y = targetTopic.y + n.offsetY;
+          n.vx = 0; 
+          n.vy = 0;
+          spawnBurst(n.x, n.y);
+        }
+      }
+    });
+    w.updated = Date.now();
+    bump();
+    persist();
+  }, [bump, persist, spawnBurst]);
+
+  const panToNode = useCallback((nodeId) => {
+    const w = worldRef.current;
+    const node = w.nodes.find(n => n.id === nodeId);
+    if (!node) return;
+    
+    const v = viewRef.current;
+    const splitViewOpen = useStore.getState().splitViewOpen;
+    // Calculate the center of the visible canvas (accounting for the 380px sidebar)
+    const availableWidth = splitViewOpen ? window.innerWidth - 380 : window.innerWidth;
+    
+    // Instantly snap the camera to center the node
+    v.x = (availableWidth / 2) - (node.x * v.s);
+    v.y = (window.innerHeight / 2) - (node.y * v.s);
+    bump();
+  }, [bump]);
 
   // Returns a unique canvas name by appending a counter if a conflict exists
   const getUniqueCanvasName = (desiredName, currentId = null) => {
@@ -1678,6 +1781,7 @@ Generate exactly 3 short, concrete follow-on ideas that develop this thought. Ea
         setSelIds(new Set());
         setTargetId(null);
         setActiveTopic(null);
+        setFocusedOutlineId(null);
         setActiveSorterTopicId(null);
         setVacuumTopicId(null);
         setVacuumSelectedIds(new Set());
@@ -1738,6 +1842,10 @@ Generate exactly 3 short, concrete follow-on ideas that develop this thought. Ea
     setTopicMenuOpen(false);
     setTimerMenuOpen(false);
     setMoveTopicMenuOpen(false);
+    
+    // NEW: Instantly close the Streams sidebar when clicking the canvas
+    setDrawerOpen(false); 
+
     if (e.target.closest('[data-bubble]') || e.target.closest('[data-ui]')) return;
     if (e.shiftKey) {
       marqueeStartRef.current = { sx: e.clientX, sy: e.clientY };
@@ -1958,7 +2066,36 @@ Generate exactly 3 short, concrete follow-on ideas that develop this thought. Ea
   const replaying = replayIdx !== null;
 
   return (
-    <div ref={containerRef} className={`fixed inset-0 select-none ${activeSorterTopicId ? 'cursor-crosshair' : ''}`} onPointerDown={onBackgroundDown}>
+    <>
+      <div ref={containerRef} className={`fixed top-0 left-0 bottom-0 select-none ${activeSorterTopicId ? 'cursor-crosshair' : ''}`} 
+           style={{ right: splitViewOpen ? '380px' : '0', transition: 'right 0.3s cubic-bezier(0.16, 1, 0.3, 1)' }} 
+           onPointerDown={onBackgroundDown}
+           onDragOver={(e) => e.preventDefault()}
+           onDrop={(e) => {
+             e.preventDefault();
+             const dataStr = e.dataTransfer.getData('application/json');
+             if (!dataStr) return;
+             try {
+               const data = JSON.parse(dataStr);
+               if (data.type === 'inbox-thought') {
+                 const w = worldRef.current;
+                 const v = viewRef.current;
+                 const node = w.nodes.find(n => n.id === data.id);
+                 if (node) {
+                   node.inInbox = false; // Remove from inbox
+                   // Teleport to the exact canvas coordinate where dropped
+                   node.x = (e.clientX - v.x) / v.s;
+                   node.y = (e.clientY - v.y) / v.s;
+                   node.vx = 0; 
+                   node.vy = 0;
+                   node.sleeping = false;
+                   w.updated = Date.now();
+                   bump();
+                   persist();
+                 }
+               }
+             } catch (err) {}
+           }}>
       <div id="bg-grad" />
       <div id="bg-dots" ref={bgRef} />
 
@@ -2074,6 +2211,8 @@ Generate exactly 3 short, concrete follow-on ideas that develop this thought. Ea
 
         {/* bubbles */}
         {w.nodes.map(n => {
+          // If the node is in the inbox, do NOT render it on the main moving canvas.
+          if (n.inInbox) return null;
           const c = COLORS[n.color % COLORS.length];
           const isSource = linkFrom === n.id;
           const isSel = selIds.has(n.id);
@@ -2128,6 +2267,7 @@ Generate exactly 3 short, concrete follow-on ideas that develop this thought. Ea
                   maxWidth: n.isHub ? 260 : n.isTopic ? 240 : 250,
                   minWidth: n.isHub || n.isTopic ? 170 : 0,
                   ...(isSel || isVacuumTargetTopic ? { outline: `2px solid ${theme === 'light' ? '#000000' : '#FFFFFF'}`, outlineOffset: 3 } : {}),
+                  ...(focusedOutlineId === n.id ? { outline: `3px solid ${theme === 'light' ? '#3B82F6' : '#60A5FA'}`, outlineOffset: 4, boxShadow: `0 0 20px ${theme === 'light' ? 'rgba(59,130,246,0.4)' : 'rgba(96,165,250,0.4)'}` } : {}),
                 }}>
                 {n.isTopic && selIds.size > 0 && (
                   <div
@@ -2172,9 +2312,18 @@ Generate exactly 3 short, concrete follow-on ideas that develop this thought. Ea
                   <div className="flex items-center justify-between w-full mb-1 gap-2">
                     <span className="text-[11px] uppercase tracking-wider font-semibold truncate"
                       style={{ color: theme === 'light' ? '#666666' : '#A3A3A3' }}>
-                      ◆ Topic{activeTopic === n.id ? ' · active' : ''}
+                      ◆ Topic{activeTopic === n.id ? ' · active' : ''}{n.collapsed ? ` · ${w.nodes.filter(m => m.topicId === n.id).length}` : ''}
                     </span>
                     <div className="flex items-center gap-1 shrink-0">
+                      <button data-ui
+                        type="button"
+                        onPointerDown={e => e.stopPropagation()}
+                        onClick={e => { e.stopPropagation(); pushUndo(); n.collapsed = !n.collapsed; worldRef.current.updated = Date.now(); bump(); persist(); }}
+                        title={n.collapsed ? "Expand topic aura" : "Collapse topic aura"}
+                        className={'p-1 rounded-md transition-colors flex items-center justify-center '
+                          + (theme === 'light' ? 'text-gray-500 hover:text-gray-900 hover:bg-gray-200/60' : 'text-neutral-400 hover:text-neutral-200 hover:bg-neutral-700/50')}>
+                        {n.collapsed ? <UnfoldIcon size={13} /> : <FoldIcon size={13} />}
+                      </button>
                       <button data-ui
                         type="button"
                         onPointerDown={e => e.stopPropagation()}
@@ -2522,9 +2671,12 @@ Generate exactly 3 short, concrete follow-on ideas that develop this thought. Ea
           className="ghost-btn flex items-center gap-1.5 text-[13px] text-neutral-300 rounded-lg px-2.5 py-1.5 whitespace-nowrap">
           <PlusIcon size={14} /> <span className="hidden lg:inline">New</span>
         </button>
-        <button onClick={() => { persist(); setSessionsRev(r => r + 1); setDrawerOpen(true); }} title="Saved Streams"
-          className="ghost-btn flex items-center gap-1.5 text-[13px] text-neutral-300 rounded-lg px-2.5 py-1.5 whitespace-nowrap">
-          <LibraryIcon size={14} /> <span className="hidden lg:inline">Streams</span>
+
+
+        <div className="w-px h-5 bg-neutral-600/30 mx-1 hidden sm:block" />
+        <button onClick={() => setSplitViewOpen(!splitViewOpen)} title="Toggle Live Outline"
+          className={`ghost-btn flex items-center gap-1.5 text-[13px] rounded-lg px-2.5 py-1.5 whitespace-nowrap transition-colors ${splitViewOpen ? 'bg-neutral-200 text-neutral-900 font-bold hover:bg-white' : 'text-neutral-300'}`}>
+          <span className="hidden lg:inline">Split View</span>
         </button>
         {/*
         <button onClick={() => setPureDump(p => {
@@ -2544,6 +2696,23 @@ Generate exactly 3 short, concrete follow-on ideas that develop this thought. Ea
         {/* Settings Gear Dropdown Menu */}
         <HeaderMenu exportMarkdown={handleExportMarkdownOutline} exportPNG={() => {}} />
       </header>
+
+      {/* Left Edge Streams Tab */}
+      {!drawerOpen && (
+        <div data-ui
+          onClick={() => { persist(); setSessionsRev(r => r + 1); setDrawerOpen(true); }}
+          title="Open Streams"
+          className="fixed left-0 top-1/2 -translate-y-1/2 z-40 glass rounded-r-xl px-1.5 py-6 flex flex-col items-center gap-3 cursor-pointer hover:bg-neutral-800/60 transition-all border-l-0 shadow-[4px_0_24px_rgba(0,0,0,0.2)] group"
+        >
+          <LibraryIcon size={16} className="text-neutral-400 group-hover:text-amber-400 transition-colors" />
+          <span 
+            className="text-[10px] font-bold uppercase tracking-widest text-neutral-500 group-hover:text-neutral-300 transition-colors" 
+            style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}
+          >
+            Streams
+          </span>
+        </div>
+      )}
 
 
 
@@ -2584,7 +2753,7 @@ Generate exactly 3 short, concrete follow-on ideas that develop this thought. Ea
           addThought(input);
           setInput('');
         }}
-        className="absolute bottom-6 left-1/2 -translate-x-1/2 z-30 w-[min(580px,88vw)]">
+        className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 w-[min(580px,88vw)]">
         {targetNode && (
           <div className="glass rounded-xl flex items-center gap-2 pl-3 pr-2 py-1.5 mb-2 text-[12.5px]">
             <span className="shrink-0">💬</span>
@@ -2825,7 +2994,62 @@ Generate exactly 3 short, concrete follow-on ideas that develop this thought. Ea
         onCreateCanvasInProject={newCanvas}
         moveCanvasToProject={moveCanvasToProject}
       />
+
+      {/* --- THE HORIZON LINE --- */}
+      <div 
+        className="fixed left-0 right-0 z-20 cursor-ns-resize flex items-center justify-center group"
+        style={{ bottom: `${inboxHeight - 10}px`, height: '20px' }}
+        onPointerDown={(e) => {
+          e.stopPropagation();
+          isDraggingInboxRef.current = true;
+          document.body.style.cursor = 'ns-resize';
+        }}
+      >
+        <div className="w-full border-b-[2px] border-dotted border-neutral-500/30 group-hover:border-neutral-400" />
+      </div>
+
+      {/* --- THE STATIC INBOX CANVAS --- */}
+      <div 
+        className="fixed left-0 right-0 bottom-0 z-10 p-6 pb-24 flex flex-wrap content-start gap-4 overflow-y-auto"
+        style={{ height: `${inboxHeight}px`, background: theme === 'light' ? 'rgba(249, 249, 247, 0.4)' : 'rgba(18, 18, 18, 0.4)', backdropFilter: 'blur(4px)' }}
+      >
+        {w.nodes.filter(n => n.inInbox).map(n => (
+          <div
+            key={n.id}
+            draggable
+            onDragStart={(e) => {
+              e.dataTransfer.effectAllowed = 'move';
+              e.dataTransfer.setData('application/json', JSON.stringify({ type: 'inbox-thought', id: n.id }));
+            }}
+            className="px-4 py-2.5 rounded-full cursor-grab active:cursor-grabbing shadow-md transition-transform hover:scale-105 flex items-center justify-center font-medium"
+            style={{
+              background: theme === 'light' ? '#FFFFFF' : '#2A2A2A',
+              borderColor: theme === 'light' ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.1)',
+              borderWidth: '1px',
+              color: theme === 'light' ? '#1B1B1B' : '#EAEAEA',
+              fontSize: '13px',
+              maxWidth: '300px',
+              wordBreak: 'break-word'
+            }}
+          >
+            {n.text}
+          </div>
+        ))}
+      </div>
     </div>
+
+    <LiveOutline 
+      nodes={w.nodes} 
+      onExport={handleExportMarkdownOutline} 
+      worldRef={worldRef}
+      bump={bump}
+      persist={persist}
+      addThought={addThought}
+      deleteNodes={deleteNodes}
+      moveNodeAndChildrenToTopic={moveNodeAndChildrenToTopic}
+      panToNode={panToNode}
+    />
+  </>
   );
 }
 
