@@ -1,80 +1,44 @@
+// 1. React
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { useGlobalInteractions } from './hooks/useGlobalInteractions';
-import { CanvasEngine } from './engine/CanvasEngine';
 
-import { COLORS, CATEGORIES, STOP, TEMPLATES, LS_SESSIONS, LS_CURRENT, LS_APIKEY, LS_HISTORY, LS_LAST_ACTIVE, ACCENT, TOPIC_ACCENT } from './utils/constants';
-import { uid, pairKey, clamp, keywords, topicOf, nodeRadius, formatTime } from './utils/helpers';
-import { fitViewForNodes, applyCollisions, applyLinkForces, applyTopicGravity, integrateVelocities } from './utils/physics';
-import { loadStore, saveStore, blankWorld, pickNode, serializeWorld, hydrateNode, createProject, loadProjects, saveProjects } from './utils/storage';
-
-import { 
-  ZapIcon, AlarmIcon, SendIcon, PlusIcon, MinusIcon, LibraryIcon, XIcon, 
-  TrashIcon, LinkIcon, CopyIcon, SparkIcon, CheckIcon, UndoIcon, RedoIcon, 
-  FitIcon, SearchIcon, MicIcon, PlayIcon, GearIcon, DownloadIcon, FoldIcon, 
-  UnfoldIcon, ZapIcon_, PinIcon, MsgIcon, ClockIcon, MagnetIcon, ChevronDownIcon, ArrowUpRightIcon 
-} from './components/icons';
-
+// 2. Zustand Store
 import { useStore } from './store/useStore';
-import { LiveOutline } from './components/LiveOutline';
-import { Sidebar } from './components/Sidebar';
-import { SettingsModal } from './components/SettingsModal';
-import { TopicMenu } from './components/TopicMenu';
-import { EditThoughtModal } from './components/EditThoughtModal';
-import { Toolbar } from './components/Toolbar';
-import { TimerMenu } from './components/TimerMenu';
-import { HeaderMenu } from './components/HeaderMenu';
-import { ExportSidebar } from './components/ExportSidebar';
-import { UIOverlay } from './components/overlays/UIOverlay';
 
+// 3. Custom Hooks
+import { useGlobalInteractions } from './hooks/useGlobalInteractions';
 import { useCanvasRefs } from './hooks/useCanvasRefs';
 import { useWorkspace } from './hooks/useWorkspace';
 import { useAI } from './hooks/useAI';
 import { useCanvasMutators } from './hooks/useCanvasMutators';
 
+// 4. UI Components (Core Engine)
+import { CanvasEngine } from './engine/CanvasEngine';
+import { UIOverlay } from './components/overlays/UIOverlay';
+import { InboxOverlay } from './components/overlays/InboxOverlay';
+import { EmptyState } from './components/overlays/EmptyState';
 
+// 5. UI Components (Sidebars & Modals)
+import { LiveOutline } from './components/LiveOutline';
+import { Sidebar } from './components/Sidebar';
+import { SettingsModal } from './components/SettingsModal';
+import { EditThoughtModal } from './components/EditThoughtModal';
+import { Toolbar } from './components/Toolbar';
+import { TimerMenu } from './components/TimerMenu';
+import { ExportSidebar } from './components/ExportSidebar';
 
-
-
-
-
+// 6. Utils
+import { LS_CURRENT, LS_LAST_ACTIVE, LS_HISTORY } from './utils/constants';
+import { uid, clamp, nodeRadius } from './utils/helpers';
+import { fitViewForNodes } from './utils/physics';
+import { loadStore, saveStore, blankWorld, hydrateNode, createProject, loadProjects } from './utils/storage';
 
 function App() {
   const [, setRev] = useState(0);
   const bump = useCallback(() => setRev(r => r + 1), []);
-  const [inboxHeight, setInboxHeight] = useState(() => {
-    return parseInt(localStorage.getItem('ts_inboxHeight') || '180', 10);
-  });
-  const isDraggingInboxRef = useRef(false);
 
-  useEffect(() => {
-    const handleMove = (e) => {
-      if (!isDraggingInboxRef.current) return;
-      const newHeight = window.innerHeight - e.clientY;
-      if (newHeight >= 60 && newHeight <= window.innerHeight * 0.8) {
-        setInboxHeight(newHeight);
-      }
-    };
-    const handleUp = () => {
-      if (isDraggingInboxRef.current) {
-        isDraggingInboxRef.current = false;
-        document.body.style.cursor = '';
-      }
-    };
-    window.addEventListener('pointermove', handleMove);
-    window.addEventListener('pointerup', handleUp);
-    return () => {
-      window.removeEventListener('pointermove', handleMove);
-      window.removeEventListener('pointerup', handleUp);
-    };
-  }, []);
-
-  useEffect(() => {
-    localStorage.setItem('ts_inboxHeight', inboxHeight);
-  }, [inboxHeight]);
-
+  // 1. Zustand Store Selectors
   const theme = useStore(s => s.theme);
   const setTheme = useStore(s => s.setTheme);
-
   const drawerOpen = useStore(s => s.drawerOpen);
   const setDrawerOpen = useStore(s => s.setDrawerOpen);
   const modalId = useStore(s => s.modalId);
@@ -85,7 +49,6 @@ function App() {
   const setLinkFrom = useStore(s => s.setLinkFrom);
   const input = useStore(s => s.input);
   const setInput = useStore(s => s.setInput);
-  const [sessionsRev, setSessionsRev] = useState(0);
   const query = useStore(s => s.query);
   const setQuery = useStore(s => s.setQuery);
   const selIds = useStore(s => s.selIds);
@@ -121,10 +84,7 @@ function App() {
   const setActiveTopic = useStore(s => s.setActiveTopic);
   const topicMenuOpen = useStore(s => s.topicMenuOpen);
   const setTopicMenuOpen = useStore(s => s.setTopicMenuOpen);
-  const newTopicName = useStore(s => s.newTopicName);
-  const setNewTopicName = useStore(s => s.setNewTopicName);
-
-  // Timer State
+  
   const timerMenuOpen = useStore(s => s.timerMenuOpen);
   const setTimerMenuOpen = useStore(s => s.setTimerMenuOpen);
   const studyTimeInput = useStore(s => s.studyTimeInput);
@@ -134,10 +94,35 @@ function App() {
   const timerActive = useStore(s => s.timerActive);
   const setTimerActive = useStore(s => s.setTimerActive);
   const timerMode = useStore(s => s.timerMode);
-  const setTimerMode = useStore(s => s.setTimerMode); // 'study' or 'break'
+  const setTimerMode = useStore(s => s.setTimerMode);
   const timerTimeLeft = useStore(s => s.timerTimeLeft);
-  const setTimerTimeLeft = useStore(s => s.setTimerTimeLeft); // in seconds
+  const setTimerTimeLeft = useStore(s => s.setTimerTimeLeft);
   
+  const activeSorterTopicId = useStore(s => s.activeSorterTopicId);
+  const setActiveSorterTopicId = useStore(s => s.setActiveSorterTopicId);
+  const splitViewOpen = useStore(s => s.splitViewOpen);
+  const setSplitViewOpen = useStore(s => s.setSplitViewOpen);
+  const focusedOutlineId = useStore(s => s.focusedOutlineId);
+  const setFocusedOutlineId = useStore(s => s.setFocusedOutlineId);
+  const vacuumTopicId = useStore(s => s.vacuumTopicId);
+  const setVacuumTopicId = useStore(s => s.setVacuumTopicId);
+  const vacuumSelectedIds = useStore(s => s.vacuumSelectedIds);
+  const setVacuumSelectedIds = useStore(s => s.setVacuumSelectedIds);
+  const hoveredPullTopicId = useStore(s => s.hoveredPullTopicId);
+  const setHoveredPullTopicId = useStore(s => s.setHoveredPullTopicId);
+  const flashActive = useStore(s => s.flashActive);
+  const setFlashActive = useStore(s => s.setFlashActive);
+  const unexportedArchiveAlert = useStore(s => s.unexportedArchiveAlert);
+  const setUnexportedArchiveAlert = useStore(s => s.setUnexportedArchiveAlert);
+
+  // 2. Local State & Initializers
+  const [sessionsRev, setSessionsRev] = useState(0);
+  const [hoveredSuggThoughtIds, setHoveredSuggThoughtIds] = useState(null);
+
+  useEffect(() => { useStore.getState().vacuumTopicId = vacuumTopicId; }, [vacuumTopicId]);
+  useEffect(() => { useStore.getState().vacuumSelectedIds = vacuumSelectedIds; }, [vacuumSelectedIds]);
+  useEffect(() => { useStore.getState().hoveredPullTopicId = hoveredPullTopicId; }, [hoveredPullTopicId]);
+
   useEffect(() => {
     let interval = null;
     if (timerActive && timerTimeLeft > 0) {
@@ -159,7 +144,8 @@ function App() {
     }
     return () => clearInterval(interval);
   }, [timerActive, timerTimeLeft, timerMode, studyTimeInput, breakTimeInput]);
-  
+
+  // 4. Core Local Functions
   const startTimer = (minutes, mode) => {
     setTimerMode(mode.toLowerCase());
     setTimerTimeLeft(minutes * 60);
@@ -172,33 +158,6 @@ function App() {
     const s = seconds % 60;
     return `${m}:${s < 10 ? '0' : ''}${s}`;
   };
-  const activeSorterTopicId = useStore(s => s.activeSorterTopicId);
-  const setActiveSorterTopicId = useStore(s => s.setActiveSorterTopicId);
-  const splitViewOpen = useStore(s => s.splitViewOpen);
-  const focusedOutlineId = useStore(s => s.focusedOutlineId);
-  const setFocusedOutlineId = useStore(s => s.setFocusedOutlineId);
-  const setSplitViewOpen = useStore(s => s.setSplitViewOpen);
-  const drawerTab = useStore(s => s.drawerTab);
-  const setDrawerTab = useStore(s => s.setDrawerTab); // 'projects' | 'daily'
-  const drawerSearch = useStore(s => s.drawerSearch);
-  const setDrawerSearch = useStore(s => s.setDrawerSearch);
-  const vacuumTopicId = useStore(s => s.vacuumTopicId);
-  const setVacuumTopicId = useStore(s => s.setVacuumTopicId);
-  const vacuumSelectedIds = useStore(s => s.vacuumSelectedIds);
-  const setVacuumSelectedIds = useStore(s => s.setVacuumSelectedIds);
-    useEffect(() => { useStore.getState().vacuumTopicId = vacuumTopicId; }, [vacuumTopicId]);
-    useEffect(() => { useStore.getState().vacuumSelectedIds = vacuumSelectedIds; }, [vacuumSelectedIds]);
-
-  const hoveredPullTopicId = useStore(s => s.hoveredPullTopicId);
-  const setHoveredPullTopicId = useStore(s => s.setHoveredPullTopicId);
-  
-  const flashActive = useStore(s => s.flashActive);
-  const setFlashActive = useStore(s => s.setFlashActive);
-  const customTime = useStore(s => s.customTime);
-  const setCustomTime = useStore(s => s.setCustomTime);
-
-    useEffect(() => { useStore.getState().hoveredPullTopicId = hoveredPullTopicId; }, [hoveredPullTopicId]);
-  const [hoveredSuggThoughtIds, setHoveredSuggThoughtIds] = useState(null);
 
 
 
@@ -241,8 +200,6 @@ function App() {
   };
 
 
-  const unexportedArchiveAlert = useStore(s => s.unexportedArchiveAlert);
-  const setUnexportedArchiveAlert = useStore(s => s.setUnexportedArchiveAlert);
 
   /** Return keyboard focus to the main thought input after closing any modal/overlay. */
   const focusInput = useCallback(() => {
@@ -350,8 +307,7 @@ function App() {
   const {
     spawnBurst, pushUndo, restoreSnapshot, undo, redo,
     createTopic, toggleVacuumPreview, confirmVacuum, cancelVacuum,
-    executeManualPull, createLink, unlink, deleteNodes,
-    moveNodeAndChildrenToTopic, panToNode
+    executeManualPull, createLink, unlink, deleteNodes
   } = useCanvasMutators({
     worldRef, viewRef, undoStack, redoStack, nodeBounds, bump, persist,
     callAI: null, // provided via useAI below; vacuum AI fallback handles null gracefully
@@ -370,15 +326,6 @@ function App() {
   useEffect(() => { useStore.getState().pureDump = pureDump; }, [pureDump]);
   useEffect(() => { useStore.getState().activeTopic = activeTopic; }, [activeTopic]);
   useEffect(() => { useStore.getState().activeSorterTopicId = activeSorterTopicId; }, [activeSorterTopicId]);
-
-
-  /* ---------- undo / redo ---------- */
-
-  /* ---------- particle bursts ---------- */
-
-  /* ---------- topics (manual gravity clusters, no links) ---------- */
-
-
 
 
 
@@ -423,6 +370,59 @@ function App() {
     setExportSidebarOpen(true);
     useStore.getState().setSplitViewOpen(false);
   }, [setDraftOutline, setExportSidebarOpen]);
+
+  const moveNodeAndChildrenToTopic = useCallback((nodeId, targetTopicId) => {
+    const w = worldRef.current;
+    const groupIds = new Set([nodeId]);
+    
+    const addDescendants = (parentId) => {
+      w.links.forEach(l => {
+        if (l.a === parentId && !groupIds.has(l.b)) {
+          groupIds.add(l.b);
+          addDescendants(l.b);
+        }
+      });
+    };
+    addDescendants(nodeId);
+    const targetTopic = targetTopicId ? w.nodes.find(n => n.id === targetTopicId) : null;
+    
+    w.nodes.forEach(n => {
+      if (groupIds.has(n.id)) {
+        n.topicId = targetTopicId || null;
+        if (targetTopic) {
+          n.sleeping = false;
+          n.userMoved = false;
+          n.pinned = false;
+          const angle = Math.random() * Math.PI * 2;
+          const R = targetTopic.r + n.r + 30;
+          n.offsetX = Math.round(Math.cos(angle) * R);
+          n.offsetY = Math.round(Math.sin(angle) * R);
+          n.x = targetTopic.x + n.offsetX;
+          n.y = targetTopic.y + n.offsetY;
+          n.vx = 0; 
+          n.vy = 0;
+          spawnBurst(n.x, n.y);
+        }
+      }
+    });
+    w.updated = Date.now();
+    bump();
+    persist();
+  }, [bump, persist, spawnBurst]);
+
+  const panToNode = useCallback((nodeId) => {
+    const w = worldRef.current;
+    const node = w.nodes.find(n => n.id === nodeId);
+    if (!node) return;
+    
+    const v = viewRef.current;
+    const splitViewOpen = useStore.getState().splitViewOpen;
+    const availableWidth = splitViewOpen ? window.innerWidth - 380 : window.innerWidth;
+    
+    v.x = (availableWidth / 2) - (node.x * v.s);
+    v.y = (window.innerHeight / 2) - (node.y * v.s);
+    bump();
+  }, [bump]);
 
   /* ---------- thought creation ---------- */
   const addThought = useCallback((text, opts = {}) => {
@@ -544,12 +544,11 @@ function App() {
     screenToWorld, byId,
     // Zustand setters
     setMarquee, setLinkFrom, setSelIds,
-    setSlashQuery, setSlashIsDouble, setHoveredSuggThoughtIds,
+    setHoveredSuggThoughtIds,
     setActiveLink, setModalId, setTargetId, setActiveTopic,
     setFocusedOutlineId, setActiveSorterTopicId, setVacuumTopicId,
     setVacuumSelectedIds, setReplayIdx, setDrawerOpen, setSettingsOpen,
     setExportOpen, setMenuOpen, setTopicMenuOpen, setTimerMenuOpen,
-    setMoveTopicMenuOpen,
   });
 
   useEffect(() => {
@@ -715,7 +714,6 @@ function App() {
     setTopicMenuOpen(false);
     setTimerMenuOpen(false);
     setExportSidebarOpen(false);
-    setSlashQuery(null);
     useStore.setState({
       selIds: new Set(),
       targetId: null,
@@ -743,7 +741,6 @@ function App() {
     setMenuOpen(false);
     setTopicMenuOpen(false);
     setTimerMenuOpen(false);
-    setMoveTopicMenuOpen(false);
     
     // NEW: Instantly close the Streams sidebar when clicking the canvas
     setDrawerOpen(false); 
@@ -831,12 +828,6 @@ function App() {
     
     dragRef.current = { node, group, sx: e.clientX, sy: e.clientY, moved: false };
   };
-  /* ---------- input helpers ---------- */
-  const seedTemplate = (name) => {
-    pushUndo();
-    TEMPLATES[name].forEach((t, i) => setTimeout(() => addThought(t, { skipUndo: true }), i * 320));
-  };
-
   /* ---------- render ---------- */
   const w = worldRef.current;
   const modalNode = modalId && byId(modalId);
@@ -941,23 +932,11 @@ function App() {
       )}
 
       {/* empty state */}
-      {!w.nodes.length && (
-        <div className="absolute inset-0 flex items-center justify-center">
-          <div className="text-center text-neutral-500 pointer-events-none">
-            <div className="text-4xl mb-3 text-neutral-500/60">✦</div>
-            <p className="font-display text-xl text-neutral-400">Type a thought below and press Enter.</p>
-            <p className="text-sm mt-1.5 text-neutral-600">The AI weaves connections as ideas pile up.</p>
-            <div className="flex gap-2 justify-center mt-5 pointer-events-auto" data-ui>
-              {Object.keys(TEMPLATES).map(name => (
-                <button key={name} onClick={() => seedTemplate(name)}
-                  className="ghost-btn text-xs text-neutral-400 border border-neutral-600/40 rounded-full px-3.5 py-1.5">
-                  {name}
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
+      <EmptyState 
+        worldRef={worldRef}
+        addThought={addThought}
+        pushUndo={pushUndo}
+      />
 
       <UIOverlay
         worldRef={worldRef}
@@ -1035,47 +1014,8 @@ function App() {
         moveCanvasToProject={moveCanvasToProject}
       />
 
-      {/* --- THE HORIZON LINE --- */}
-      <div 
-        className="fixed left-0 right-0 z-20 cursor-ns-resize flex items-center justify-center group"
-        style={{ bottom: `${inboxHeight - 10}px`, height: '20px' }}
-        onPointerDown={(e) => {
-          e.stopPropagation();
-          isDraggingInboxRef.current = true;
-          document.body.style.cursor = 'ns-resize';
-        }}
-      >
-        <div className="w-full border-b-[2px] border-dotted border-neutral-500/30 group-hover:border-neutral-400" />
-      </div>
-
-      {/* --- THE STATIC INBOX CANVAS --- */}
-      <div 
-        className="fixed left-0 right-0 bottom-0 z-10 p-6 pb-24 flex flex-wrap content-start gap-4 overflow-y-auto"
-        style={{ height: `${inboxHeight}px`, background: theme === 'light' ? 'rgba(249, 249, 247, 0.4)' : 'rgba(18, 18, 18, 0.4)', backdropFilter: 'blur(4px)' }}
-      >
-        {w.nodes.filter(n => n.inInbox).map(n => (
-          <div
-            key={n.id}
-            draggable
-            onDragStart={(e) => {
-              e.dataTransfer.effectAllowed = 'move';
-              e.dataTransfer.setData('application/json', JSON.stringify({ type: 'inbox-thought', id: n.id }));
-            }}
-            className="px-4 py-2.5 rounded-full cursor-grab active:cursor-grabbing shadow-md transition-transform hover:scale-105 flex items-center justify-center font-medium"
-            style={{
-              background: theme === 'light' ? '#FFFFFF' : '#2A2A2A',
-              borderColor: theme === 'light' ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.1)',
-              borderWidth: '1px',
-              color: theme === 'light' ? '#1B1B1B' : '#EAEAEA',
-              fontSize: '13px',
-              maxWidth: '300px',
-              wordBreak: 'break-word'
-            }}
-          >
-            {n.text}
-          </div>
-        ))}
-      </div>
+      {/* Inbox Canvas & Horizon Line */}
+      <InboxOverlay worldRef={worldRef} />
     </div>
 
     <LiveOutline 
