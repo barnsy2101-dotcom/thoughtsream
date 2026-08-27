@@ -504,6 +504,10 @@ function App() {
 
   const viewRef = useRef(fitViewForNodes(worldRef.current ? worldRef.current.nodes : []));
 
+  // Local helpers — used throughout App.jsx and passed to renderCanvasDOM
+  const byId = (id) => worldRef.current.nodes.find(n => n.id === id);
+  const screenToWorld = (sx, sy) => { const v = viewRef.current; return { x: (sx - v.x) / v.s, y: (sy - v.y) / v.s }; };
+
   // ── Phase 1: DOM & interaction refs (must come before useEffects that reference them) ──
   const {
     containerRef, worldElRef, bgRef, nodeEls, pathEls, hitEls, labelEls, badgeEls,
