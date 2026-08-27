@@ -26,6 +26,12 @@ import { TimerMenu } from './components/TimerMenu';
 import { HeaderMenu } from './components/HeaderMenu';
 import { ExportSidebar } from './components/ExportSidebar';
 
+import { useCanvasRefs } from './hooks/useCanvasRefs';
+import { useWorkspace } from './hooks/useWorkspace';
+import { useAI } from './hooks/useAI';
+import { useCanvasMutators } from './hooks/useCanvasMutators';
+
+
 
 
 
@@ -432,8 +438,6 @@ function App() {
     setSelIds(new Set());
   };
 
-  const pullTetherGroupRef = useRef(null);
-  const sourceTetherGroupRef = useRef(null);
 
   const unexportedArchiveAlert = useStore(s => s.unexportedArchiveAlert);
   const setUnexportedArchiveAlert = useStore(s => s.setUnexportedArchiveAlert);
@@ -499,28 +503,14 @@ function App() {
   );
 
   const viewRef = useRef(fitViewForNodes(worldRef.current ? worldRef.current.nodes : []));
-  const containerRef = useRef(null);
-  const worldElRef = useRef(null);
-  const bgRef = useRef(null);
-  const nodeEls = useRef({});
-  const pathEls = useRef({});
-  const hitEls = useRef({});
-  const labelEls = useRef({});
-  const badgeEls = useRef({});
-  const suggCardRef = useRef(null);
-  const linkCardRef = useRef(null);
-  const previewRef = useRef(null);
-  const mouseRef = useRef({ x: 0, y: 0 });
-  const dragRef = useRef(null);
-  const panRef = useRef(null);
-  const marqueeStartRef = useRef(null);
-    const linkDragRef = useRef(null);
-                    const zoneEls = useRef({});
-  const threadLineRef = useRef(null);
-  
-  const nodeBounds = useRef({});
-  const observedNodes = useRef(new Set());
-  const resizeObserver = useRef(null);
+
+  // ── Phase 1: DOM & interaction refs (must come before useEffects that reference them) ──
+  const {
+    containerRef, worldElRef, bgRef, nodeEls, pathEls, hitEls, labelEls, badgeEls,
+    suggCardRef, linkCardRef, previewRef, mouseRef, dragRef, panRef, marqueeStartRef,
+    linkDragRef, zoneEls, threadLineRef, nodeBounds, observedNodes, resizeObserver,
+    lastAIHashRef, undoStack, redoStack, recRef, pullTetherGroupRef, sourceTetherGroupRef
+  } = useCanvasRefs();
 
   useEffect(() => {
     resizeObserver.current = new ResizeObserver((entries) => {
@@ -536,10 +526,33 @@ function App() {
     });
     return () => resizeObserver.current?.disconnect();
   }, []);
-      const lastAIHashRef = useRef('');
-  const undoStack = useRef([]);
-  const redoStack = useRef([]);
-  const recRef = useRef(null);
+
+  // ── Phase 2: Workspace management ─────────────────────────────────────────
+  const {
+    persist, getUniqueCanvasName, switchWorld, newCanvas,
+    openSession, renameSession, duplicateSession, deleteSession,
+    renameProject, deleteProjectHandler, moveCanvasToProject, tsSwitchToToday
+  } = useWorkspace({
+    worldRef, viewRef, undoStack, redoStack, lastAIHashRef,
+    setActiveWorldId, bump, setSessionsRev, setModalId,
+    setActiveLink, setLinkFrom, setSelIds, setReplayIdx,
+    setTargetId, setActiveTopic, setTopicMenuOpen, setMenuOpen,
+    setInput, setDrawerOpen
+  });
+
+  // ── Phase 3: Graph mutation functions ─────────────────────────────────────
+  const {
+    spawnBurst, pushUndo, restoreSnapshot, undo, redo,
+    createTopic, toggleVacuumPreview, confirmVacuum, cancelVacuum,
+    executeManualPull, createLink, unlink, deleteNodes,
+    moveNodeAndChildrenToTopic, panToNode
+  } = useCanvasMutators({
+    worldRef, viewRef, undoStack, redoStack, nodeBounds, bump, persist,
+    callAI: null, // provided via useAI below; vacuum AI fallback handles null gracefully
+    setModalId, setActiveLink, setSelIds, setTargetId, setActiveTopic,
+    setVacuumTopicId, setVacuumSelectedIds
+  });
+
   useEffect(() => { useStore.getState().linkFrom = linkFrom; }, [linkFrom]);
   useEffect(() => { useStore.getState().activeLink = activeLink; }, [activeLink]);
   useEffect(() => { useStore.getState().selIds = selIds; }, [selIds]);
@@ -552,234 +565,16 @@ function App() {
   useEffect(() => { useStore.getState().activeTopic = activeTopic; }, [activeTopic]);
   useEffect(() => { useStore.getState().activeSorterTopicId = activeSorterTopicId; }, [activeSorterTopicId]);
 
-  const screenToWorld = (sx, sy) => {
-    const v = viewRef.current;
-    return { x: (sx - v.x) / v.s, y: (sy - v.y) / v.s };
-  };
-  const byId = (id) => worldRef.current.nodes.find(n => n.id === id);
 
   /* ---------- undo / redo ---------- */
-  const pushUndo = useCallback(() => {
-    undoStack.current.push(serializeWorld(worldRef.current));
-    if (undoStack.current.length > 60) undoStack.current.shift();
-    redoStack.current = [];
-  }, []);
-  const restoreSnapshot = (snap) => {
-    const data = JSON.parse(snap);
-    const w = worldRef.current;
-    w.nodes = data.nodes.map(hydrateNode);
-    w.nodes.forEach(n => { n.r = nodeRadius(n); });
-    w.links = data.links;
-    w.updated = Date.now();
-    setModalId(null); setActiveLink(null); setSelIds(new Set()); setTargetId(null);
-    bump();
-  };
-  const undo = useCallback(() => {
-    if (!undoStack.current.length) return;
-    redoStack.current.push(serializeWorld(worldRef.current));
-    restoreSnapshot(undoStack.current.pop());
-  }, []);
-  const redo = useCallback(() => {
-    if (!redoStack.current.length) return;
-    undoStack.current.push(serializeWorld(worldRef.current));
-    restoreSnapshot(redoStack.current.pop());
-  }, []);
 
   /* ---------- particle bursts ---------- */
-  const spawnBurst = useCallback((x, y, opts = {}) => {
-    const w = worldRef.current;
-    if (!w.bursts) w.bursts = [];
-    const burstId = uid();
-    w.bursts.push({ id: burstId, x, y, ...opts });
-    setTimeout(() => {
-      const w2 = worldRef.current;
-      w2.bursts = (w2.bursts || []).filter(b => b.id !== burstId);
-      bump();
-    }, opts.big ? 700 : 700);
-    bump();
-  }, []);
 
   /* ---------- topics (manual gravity clusters, no links) ---------- */
-  const createTopic = useCallback((name) => {
-    name = (name || '').trim();
-    if (!name) return null;
-    const w = worldRef.current;
-    const existing = w.nodes.find(n => (n.isTopic || n.isHub) && n.title && n.title.toLowerCase() === name.toLowerCase());
-    if (existing) return existing;
-    pushUndo();
-    const spawn = screenToWorld(window.innerWidth / 2 + (Math.random() * 120 - 60), window.innerHeight * 0.42);
-    const t = {
-      id: uid(), isTopic: true, title: name, text: name, notes: '', color: 2,
-      x: spawn.x, y: spawn.y, vx: 0, vy: 0, floating: false,
-      isHub: false, collapsed: false, isQuestion: false, pinned: false, topicId: null,
-      created: Date.now(),
-    };
-    t.r = nodeRadius(t);
-    w.nodes.push(t);
-    setActiveTopic(t.id);
-    spawnBurst(spawn.x, spawn.y, { color: TOPIC_ACCENT });
-    w.updated = Date.now();
-    bump();
-    return t;
-  }, []);
 
-  const toggleVacuumPreview = useCallback(async (topicNode) => {
-    if (useStore.getState().vacuumTopicId === topicNode.id) {
-      setVacuumTopicId(null);
-      setVacuumSelectedIds(new Set());
-      return;
-    }
-    const w = worldRef.current;
-    const loose = w.nodes.filter(n => !n.isTopic && !n.isHub && !n.topicId && n.text.trim());
-    if (loose.length === 0) return;
 
-    const topTitle = (topicNode.title || '').toLowerCase();
-    const topKws = keywords(topicNode.title || '');
-    const catKws = CATEGORIES[topicNode.title] || [];
-    
-    // Fast keyword & category matching
-    const fastMatches = new Set();
-    for (const n of loose) {
-      const textLower = n.text.toLowerCase();
-      const tKws = keywords(n.text);
-      const assignedTopic = topicOf(n.text);
-      
-      const isDirectMatch = textLower.includes(topTitle) || (topTitle.length >= 3 && topTitle.includes(textLower));
-      const isTopicOfMatch = assignedTopic && assignedTopic.toLowerCase() === topTitle;
-      const isKwMatch = topKws.length > 0 && topKws.some(k => tKws.includes(k));
-      const isCatMatch = catKws.length > 0 && catKws.some(k => tKws.some(tk => tk.includes(k) || k.includes(tk)));
-      
-      if (isDirectMatch || isTopicOfMatch || isKwMatch || isCatMatch) {
-        fastMatches.add(n.id);
-      }
-    }
-    
-    setVacuumTopicId(topicNode.id);
-    setVacuumSelectedIds(fastMatches);
 
-    // AI Semantic Matching if API key is set
-    const apiKey = useStore.getState().apiKey;
-    if (apiKey) {
-      try {
-        const prompt = `Topic: "${topicNode.title}"
 
-Analyze the following thoughts and determine which ones are semantically relevant to the topic "${topicNode.title}".
-
-Thoughts (id: text):
-${loose.map(n => `${n.id}: ${n.text}`).join('\n')}
-
-Rules:
-- Only include thought ids that actually relate to "${topicNode.title}".
-- EXCLUDE completely unrelated thoughts (e.g. daily logs vs tech topics).`;
-
-        const schema = {
-          type: 'object',
-          properties: {
-            matchingIds: {
-              type: 'array',
-              items: { type: 'string' }
-            }
-          },
-          required: ['matchingIds'],
-          additionalProperties: false
-        };
-
-        const res = await callAI(prompt, schema);
-        if (res && Array.isArray(res.matchingIds)) {
-          const validLooseIds = new Set(loose.map(l => l.id));
-          const aiMatches = new Set(res.matchingIds.filter(id => validLooseIds.has(id)));
-          setVacuumSelectedIds(aiMatches);
-        }
-      } catch (e) {
-        console.warn('Vacuum AI semantic check failed, using keyword matches:', e);
-      }
-    }
-  }, []);
-
-  const confirmVacuum = useCallback(() => {
-    if (!useStore.getState().vacuumTopicId) return;
-    const topicId = useStore.getState().vacuumTopicId;
-    const targetTopic = byId(topicId);
-    const selectedIds = new Set(useStore.getState().vacuumSelectedIds || []);
-    if (selectedIds.size === 0) {
-      setVacuumTopicId(null);
-      setVacuumSelectedIds(new Set());
-      return;
-    }
-    pushUndo();
-    const w = worldRef.current;
-    const existingMembers = w.nodes.filter(m => m.topicId === topicId);
-    let memberIndex = existingMembers.length;
-    const totalNew = selectedIds.size + existingMembers.length;
-    for (const n of w.nodes) {
-      if (selectedIds.has(n.id) && !n.isTopic && !n.isHub) {
-        n.topicId = topicId;
-        n.sleeping = false;
-        n.userMoved = false;
-        const angle = (memberIndex / Math.max(1, totalNew)) * Math.PI * 2;
-        const R = (targetTopic ? targetTopic.r : 74) + n.r + 65 + (memberIndex % 2) * (totalNew > 4 ? 35 : 0);
-        n.offsetX = Math.round(Math.cos(angle) * R);
-        n.offsetY = Math.round(Math.sin(angle) * R);
-        
-        if (targetTopic) {
-          n.x = targetTopic.x + n.offsetX;
-          n.y = targetTopic.y + n.offsetY;
-          n.vx = 0;
-          n.vy = 0;
-        }
-        
-        memberIndex++;
-        spawnBurst(n.x, n.y);
-      }
-    }
-    if (targetTopic) {
-      spawnBurst(targetTopic.x, targetTopic.y, { color: TOPIC_ACCENT, big: true });
-    }
-    w.updated = Date.now();
-    setVacuumTopicId(null);
-    setVacuumSelectedIds(new Set());
-    bump();
-    persist();
-    document.getElementById('thought-input')?.focus();
-  }, [pushUndo, bump]);
-
-  const cancelVacuum = useCallback(() => {
-    setVacuumTopicId(null);
-    setVacuumSelectedIds(new Set());
-    document.getElementById('thought-input')?.focus();
-  }, []);
-
-  const executeManualPull = useCallback((targetTopicId) => {
-    const selectedIds = useStore.getState().selIds;
-    if (selectedIds.size === 0) return;
-    const w = worldRef.current;
-    const targetTopic = w.nodes.find(n => n.id === targetTopicId);
-    if (!targetTopic) return;
-    
-    let memberIndex = 0;
-    const looseSelected = Array.from(selectedIds).map(id => w.nodes.find(n => n.id === id)).filter(n => n && !n.isTopic && !n.isHub);
-    
-    for (const n of looseSelected) {
-      n.topicId = targetTopicId;
-      n.sleeping = false;
-      n.userMoved = false;
-      n.pinned = false;
-      const angle = Math.random() * Math.PI * 2;
-      const R = targetTopic.r + n.r + 30;
-      n.offsetX = Math.round(Math.cos(angle) * R);
-      n.offsetY = Math.round(Math.sin(angle) * R);
-      n.x = targetTopic.x + n.offsetX;
-      n.y = targetTopic.y + n.offsetY;
-      n.vx = 0; 
-      n.vy = 0;
-      
-      n.isPulling = false;
-    }
-    
-    setSelIds(new Set());
-    w.updated = Date.now();
-    bump();
-  }, [bump]);
 
   const exportTopicMarkdown = useCallback((topicNode) => {
     const w = worldRef.current;
@@ -924,6 +719,14 @@ Rules:
     }, 8000);
     return n;
   }, []);
+
+  // ── Phase 2: AI functions (needs addThought from above) ──────────────────
+  const { simulateAI, callAI, runAI, expandThought } = useAI({
+    worldRef, lastAIHashRef, bump, addThought, pushUndo,
+    setAiBusy, setAiNote, setExpandBusy, setModalId
+  });
+
+
   useEffect(() => {
     window.tsAdd = (t) => addThought(t); window.tsWorld = () => worldRef.current;
     window.tsUndo = undo; window.tsHidden = () => [...hiddenIdSet()];
@@ -962,152 +765,7 @@ Rules:
   }, [addThought, undo]);
 
   /* ---------- AI engine ---------- */
-  const simulateAI = () => {
-    const w = worldRef.current;
-    const thoughts = w.nodes.filter(n => !n.isTopic && !n.isHub && !n.topicId && n.text.trim());
-    const metaHubs = [];
-    const topic = new Map(thoughts.map(t => [t.id, topicOf(t.text)]));
-
-    const byTopic = {};
-    for (const t of thoughts) { const c = topic.get(t.id); if (c) (byTopic[c] = byTopic[c] || []).push(t.id); }
-    for (const [cat, ids] of Object.entries(byTopic)) {
-      const existingHub = w.nodes.find(n => 
-        (n.isHub || n.isTopic) && n.title && n.title.toLowerCase() === cat.toLowerCase()
-      );
-      if (!existingHub && ids.length >= 5) {
-        metaHubs.push({ topicName: cat, thoughtIds: ids });
-      } else if (existingHub && ids.length >= 1) {
-        metaHubs.push({ topicName: existingHub.title, thoughtIds: ids });
-      }
-    }
-    if (metaHubs.length > 0) {
-      useStore.getState().setAiTopicSuggestions(metaHubs.slice(0, 3));
-    }
-  };
-
-  const callAI = async (prompt, schema, maxTokens = 2048) => {
-    const apiKey = useStore.getState().apiKey;
-    if (apiKey.startsWith('AIza') || apiKey.startsWith('AQ.')) {
-      const cleanSchema = JSON.parse(JSON.stringify(schema));
-      const removeExtra = (obj) => {
-        if (obj.additionalProperties !== undefined) delete obj.additionalProperties;
-        if (obj.properties) Object.values(obj.properties).forEach(removeExtra);
-        if (obj.items) removeExtra(obj.items);
-      };
-      removeExtra(cleanSchema);
-
-      const modelsToTry = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-flash-latest'];
-      let lastErr = null;
-      for (const model of modelsToTry) {
-        try {
-          const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({
-              contents: [{ role: 'user', parts: [{ text: prompt }] }],
-              generationConfig: {
-                responseMimeType: 'application/json',
-                responseSchema: cleanSchema,
-                maxOutputTokens: maxTokens,
-              }
-            })
-          });
-          if (!res.ok) {
-            const err = await res.json().catch(() => ({}));
-            throw new Error((err.error && err.error.message) || `Gemini API error ${res.status}`);
-          }
-          const data = await res.json();
-          const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
-          return JSON.parse(text);
-        } catch (err) {
-          lastErr = err;
-          // If model is not found or unsupported, continue to try the next model
-          if (err.message && err.message.includes('not found')) continue;
-          throw err;
-        }
-      }
-      throw lastErr;
-    } else {
-      const res = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          'x-api-key': apiKey,
-          'anthropic-version': '2023-06-01',
-          'anthropic-dangerous-direct-browser-access': 'true',
-        },
-        body: JSON.stringify({
-          model: 'claude-3-5-sonnet-20241022',
-          max_tokens: maxTokens,
-          output_config: { format: { type: 'json_schema', schema } },
-          messages: [{ role: 'user', content: prompt }],
-        }),
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error((err.error && err.error.message) || `API error ${res.status}`);
-      }
-      const data = await res.json();
-      const text = data.content.find(b => b.type === 'text');
-      return JSON.parse(text.text);
-    }
-  };
-
-  const runAI = useCallback(async () => {
-    if (useStore.getState().pureDump) return;
-    const w = worldRef.current;
-    const thoughts = w.nodes.filter(n => !n.isTopic && !n.isHub && !n.topicId && n.text.trim());
-    if (thoughts.length < 2) return;
-    if (!useStore.getState().apiKey) { simulateAI(); return; }
-    const hash = thoughts.map(t => t.id + t.text).join('|');
-    if (hash === lastAIHashRef.current || useStore.getState().aiBusy) return;
-    useStore.getState().aiBusy = true; setAiBusy(true); setAiNote('');
-    try {
-      const hubs = w.nodes
-        .filter(n => (n.isHub || n.isTopic) && n.title)
-        .map(n => ({ id: n.id, title: n.title }));
-
-      const prompt = `You are the synthesis engine inside a brainstorming canvas. Analyze these thoughts and suggest connections and thematic clusters.
-Thoughts (id: text):
-${thoughts.map(t => `${t.id}: ${t.text}`).join('\n')}
-Existing cluster hubs:
-${JSON.stringify(hubs)}
-
-Rules:
-- Suggest at most 5 new connections between genuinely related thoughts. Each reason must be one short, specific sentence (max 10 words).
-- NEW TOPICS: Propose a new topic ONLY when 5 or more unassigned thoughts share a strong theme NOT already covered by an existing hub.
-- EXISTING TOPICS: If 1 or more unassigned thoughts belong to an existing hub/topic title from the list above, list them under that EXACT existing title. NEVER invent a new or duplicate title for an existing topic.
-- Only use thought ids from the list above. Quality over quantity - an empty list is fine.`;
-      const schema = {
-        type: 'object',
-        properties: {
-          topics: {
-            type: 'array',
-            items: {
-              type: 'object',
-              properties: { topicName: { type: 'string' }, thoughtIds: { type: 'array', items: { type: 'string' } } },
-              required: ['topicName', 'thoughtIds'], additionalProperties: false,
-            },
-          },
-        },
-        required: ['topics'], additionalProperties: false,
-      };
-      const out = await callAI(prompt, schema);
-      lastAIHashRef.current = hash;
-      useStore.getState().setAiTopicSuggestions((out.topics || []).slice(0, 3));
-    } catch (e) {
-      setAiNote(e.message.slice(0, 80));
-      simulateAI();
-    } finally {
-      useStore.getState().aiBusy = false; setAiBusy(false);
-    }
-  }, []);
-  useEffect(() => {
-    const t = setInterval(() => {
-      if (useStore.getState().autoAIEnabled) runAI();
-    }, apiKey ? 60000 : 7000);
-    return () => clearInterval(t);
-  }, [runAI, apiKey]);
+  // simulateAI, callAI, runAI, expandThought are provided by useAI hook (instantiated below)
 
   /* ---------- study timer ---------- */
   useEffect(() => {
@@ -1145,86 +803,8 @@ Rules:
     return () => clearInterval(t);
   }, [timerActive]);
 
-  const expandThought = async (node) => {
-    setExpandBusy(true);
-    let ideas;
-    try {
-      if (useStore.getState().apiKey) {
-        const out = await callAI(
-          `In a brainstorming session, the thought is: "${node.text}"${node.notes ? ` (notes: ${node.notes})` : ''}.
-Other thoughts on the canvas: ${worldRef.current.nodes.filter(n => !n.isHub && n.id !== node.id).slice(0, 20).map(n => n.text).join('; ')}
-Generate exactly 3 short, concrete follow-on ideas that develop this thought. Each under 12 words. No numbering.`,
-          { type: 'object', properties: { ideas: { type: 'array', items: { type: 'string' } } }, required: ['ideas'], additionalProperties: false },
-          1024,
-        );
-        ideas = (out.ideas || []).slice(0, 4);
-      }
-    } catch (e) { setAiNote(e.message.slice(0, 80)); }
-    if (!ideas || !ideas.length) {
-      const stub = node.text.length > 40 ? node.text.slice(0, 40) + '…' : node.text;
-      ideas = [
-        `First concrete step toward: ${stub}`,
-        `Biggest obstacle to: ${stub}`,
-        `How do we measure: ${stub}`,
-      ];
-    }
-    pushUndo();
-    ideas.forEach((idea, i) => {
-      const angle = (i / ideas.length) * Math.PI + Math.PI * 0.15;
-      const child = addThought(idea, {
-        at: { x: node.x + Math.cos(angle) * 240 * (i % 2 ? 1 : -1), y: node.y + 170 + Math.sin(angle) * 60 },
-        skipUndo: true,
-      });
-      if (child) worldRef.current.links.push({ id: uid(), a: node.id, b: child.id });
-    });
-    setExpandBusy(false);
-    setModalId(null);
-    bump();
-  };
 
   /* ---------- links ---------- */
-  const createLink = (a, b, skipUndo, opts = {}) => {
-    const w = worldRef.current;
-    if (a === b) return;
-    const k = pairKey(a, b);
-    if (w.links.some(l => pairKey(l.a, l.b) === k)) return;
-    if (!skipUndo) pushUndo();
-    w.links.push({ id: uid(), a, b, ...opts });
-    w.updated = Date.now();
-    bump();
-  };
-  const unlink = (id) => {
-    pushUndo();
-    const w = worldRef.current;
-    w.links = w.links.filter(l => l.id !== id);
-    setActiveLink(null); w.updated = Date.now(); bump(); persist();
-  };
-  const deleteNodes = (ids) => {
-    pushUndo();
-    const w = worldRef.current;
-    const set = ids instanceof Set ? ids : new Set([ids]);
-    if (useStore.getState().targetId && set.has(useStore.getState().targetId)) setTargetId(null);
-    w.nodes.filter(n => set.has(n.id)).forEach(n => {
-      const col = n.isHub ? '#EAEAEA' : (COLORS[n.color % COLORS.length].dot);
-      spawnBurst(n.x, n.y, { big: true, color: col === '#737373' ? '#EAEAEA' : col, r: n.r });
-    });
-    w.nodes = w.nodes.filter(n => !set.has(n.id));
-    w.links = w.links.filter(l => !set.has(l.a) && !set.has(l.b));
-    w.nodes.forEach(n => { if (n.topicId && set.has(n.topicId)) n.topicId = null; });
-    if (useStore.getState().activeTopic && set.has(useStore.getState().activeTopic)) setActiveTopic(null);
-
-    // Clean up AI topic suggestions if underlying thoughts no longer exist
-    const looseNodeIds = new Set(w.nodes.filter(n => !n.isTopic && !n.isHub && !n.topicId).map(n => n.id));
-    const currentSuggs = useStore.getState().aiTopicSuggestions;
-    if (currentSuggs.length > 0) {
-      useStore.getState().setAiTopicSuggestions(
-        currentSuggs.filter(sugg => sugg.thoughtIds && sugg.thoughtIds.some(id => looseNodeIds.has(id)))
-      );
-    }
-
-    w.updated = Date.now();
-    setModalId(null); setSelIds(new Set()); bump(); persist();
-  };
 
   /* ---------- collapse hubs ---------- */
   const hubMembers = (hubId) => {
@@ -1236,7 +816,7 @@ Generate exactly 3 short, concrete follow-on ideas that develop this thought. Ea
     const hidden = new Set();
     for (const n of w.nodes) {
       if (n.inInbox) hidden.add(n.id);
-      if (n.isHub && n.collapsed) hubMembers(n.id).forEach(id => { const m = byId(id); if (m && !m.isHub) hidden.add(id); });
+      if (n.isHub && n.collapsed) hubMembers(n.id).forEach(id => { const m = worldRef.current.nodes.find(x => x.id === id); if (m && !m.isHub) hidden.add(id); });
       
       if (n.isTopic && n.collapsed) {
         w.nodes.forEach(m => {
@@ -1252,245 +832,17 @@ Generate exactly 3 short, concrete follow-on ideas that develop this thought. Ea
   };
 
   /* ---------- sessions ---------- */
-  const persist = useCallback(() => {
-    const w = worldRef.current;
-    if (!w) return;
-    const store = loadStore();
-    store[w.id] = {
-      id: w.id,
-      projectId: w.projectId || null,
-      name: w.name || 'Untitled Canvas',
-      updated: w.updated || Date.now(),
-      nodes: w.nodes ? w.nodes.map(pickNode) : [],
-      links: w.links || [],
-      rejected: w.rejected || [],
-    };
-    saveStore(store);
-    localStorage.setItem(LS_CURRENT, w.id);
-  }, []);
-  useEffect(() => {
-    const t = setInterval(persist, 2500);
-    return () => clearInterval(t);
-  }, [persist]);
 
-  const moveNodeAndChildrenToTopic = useCallback((nodeId, targetTopicId) => {
-    const w = worldRef.current;
-    const groupIds = new Set([nodeId]);
-    
-    // Recursively find all downstream connected bubbles
-    const addDescendants = (parentId) => {
-      w.links.forEach(l => {
-        if (l.a === parentId && !groupIds.has(l.b)) {
-          groupIds.add(l.b);
-          addDescendants(l.b);
-        }
-      });
-    };
-    addDescendants(nodeId);
 
-    const targetTopic = targetTopicId ? w.nodes.find(n => n.id === targetTopicId) : null;
-    
-    w.nodes.forEach(n => {
-      if (groupIds.has(n.id)) {
-        n.topicId = targetTopicId || null;
-        if (targetTopic) {
-          // INSTANT TELEPORT
-          n.sleeping = false;
-          n.userMoved = false;
-          n.pinned = false;
-          const angle = Math.random() * Math.PI * 2;
-          const R = targetTopic.r + n.r + 30;
-          n.offsetX = Math.round(Math.cos(angle) * R);
-          n.offsetY = Math.round(Math.sin(angle) * R);
-          n.x = targetTopic.x + n.offsetX;
-          n.y = targetTopic.y + n.offsetY;
-          n.vx = 0; 
-          n.vy = 0;
-          spawnBurst(n.x, n.y);
-        }
-      }
-    });
-    w.updated = Date.now();
-    bump();
-    persist();
-  }, [bump, persist, spawnBurst]);
-
-  const panToNode = useCallback((nodeId) => {
-    const w = worldRef.current;
-    const node = w.nodes.find(n => n.id === nodeId);
-    if (!node) return;
-    
-    const v = viewRef.current;
-    const splitViewOpen = useStore.getState().splitViewOpen;
-    // Calculate the center of the visible canvas (accounting for the 380px sidebar)
-    const availableWidth = splitViewOpen ? window.innerWidth - 380 : window.innerWidth;
-    
-    // Instantly snap the camera to center the node
-    v.x = (availableWidth / 2) - (node.x * v.s);
-    v.y = (window.innerHeight / 2) - (node.y * v.s);
-    bump();
-  }, [bump]);
 
   // Returns a unique canvas name by appending a counter if a conflict exists
-  const getUniqueCanvasName = (desiredName, currentId = null) => {
-    const store = loadStore();
-    const existingNames = Object.values(store)
-      .filter(s => s.id !== currentId)
-      .map(s => s.name || '');
-    if (!existingNames.includes(desiredName)) return desiredName;
-    let counter = 1;
-    while (existingNames.includes(`${desiredName} (${counter})`)) counter++;
-    return `${desiredName} (${counter})`;
-  };
 
-  const switchWorld = (w) => {
-    // Save immediately to localStorage so the Header can find it
-    const store = loadStore();
-    store[w.id] = {
-      id: w.id,
-      projectId: w.projectId || null,
-      name: w.name || 'Untitled Canvas',
-      updated: w.updated || Date.now(),
-      nodes: w.nodes ? w.nodes.map(pickNode) : [],
-      links: w.links || [],
-      rejected: w.rejected || [],
-    };
-    saveStore(store);
-    localStorage.setItem(LS_CURRENT, w.id);
 
-    worldRef.current = w;
-    viewRef.current = fitViewForNodes(w.nodes);
-    undoStack.current = [];
-    redoStack.current = [];
-    lastAIHashRef.current = '';
 
-    setModalId(null);
-    setActiveLink(null);
-    setLinkFrom(null);
-    setSelIds(new Set());
-    setReplayIdx(null);
-    setTargetId(null);
-    setActiveTopic(null);
-    setTopicMenuOpen(false);
-    setMenuOpen(false);
-    setInput(''); // Clear draft text from bottom input bar
 
-    // GUARANTEE IMMEDIATE REACT UI RE-RENDER:
-    setActiveWorldId(w.id);
-    bump();
-    setSessionsRev(r => r + 1);
-  };
-  const newCanvas = (projectId = null) => {
-    const safeProjectId = (typeof projectId === 'string') ? projectId : null;
-    const newW = blankWorld();
-    newW.name = 'Untitled Canvas';
-    newW.projectId = safeProjectId;
-    switchWorld(newW);
 
-    setTimeout(() => {
-      const titleInput = document.getElementById('canvas-title-input');
-      if (titleInput) {
-        titleInput.focus();
-        titleInput.select();
-      }
-    }, 50);
-  };
-
-  const openSession = (id) => {
-    const s = loadStore()[id];
-    if (!s) return;
-    const w = { ...blankWorld(), ...s };
-    w.nodes = w.nodes.map(hydrateNode);
-    w.nodes.forEach(n => { n.r = nodeRadius(n); });
-    switchWorld(w);
-    setDrawerOpen(false);
-  };
-  const renameSession = (id, name) => {
-    const uniqueName = getUniqueCanvasName(name, id);
-    const store = loadStore();
-    if (store[id]) { store[id].name = uniqueName; saveStore(store); }
-    if (worldRef.current.id === id) worldRef.current.name = uniqueName;
-    setSessionsRev(r => r + 1); bump();
-  };
-  const duplicateSession = (id) => {
-    const store = loadStore();
-    const orig = store[id];
-    if (!orig) return;
-    const dup = {
-      ...orig,
-      id: uid(),
-      name: `${orig.name} (Copy)`,
-      updated: Date.now(),
-    };
-    store[dup.id] = dup;
-    saveStore(store);
-    setSessionsRev(r => r + 1);
-    bump();
-  };
-  const deleteSession = (id) => {
-    const store = loadStore();
-    delete store[id]; saveStore(store);
-    if (worldRef.current.id === id) worldRef.current = blankWorld();
-    setSessionsRev(r => r + 1); bump();
-  };
-
-  const renameProject = (id, name) => {
-    const projs = loadProjects();
-    const p = projs.find(x => x.id === id);
-    if (p) {
-      p.name = name;
-      saveProjects(projs);
-      useStore.getState().setProjects(projs);
-      bump();
-    }
-  };
-
-  const deleteProjectHandler = (id) => {
-    const projs = loadProjects().filter(p => p.id !== id);
-    saveProjects(projs);
-    useStore.getState().setProjects(projs);
-    
-    const store = loadStore();
-    let updated = false;
-    for (const key in store) {
-      if (store[key].projectId === id) {
-        store[key].projectId = null;
-        updated = true;
-      }
-    }
-    if (updated) {
-      saveStore(store);
-      setSessionsRev(r => r + 1);
-    }
-    bump();
-  };
-
-  const moveCanvasToProject = (canvasId, projectId) => {
-    const store = loadStore();
-    if (store[canvasId]) {
-      store[canvasId].projectId = projectId;
-      saveStore(store);
-      if (worldRef.current.id === canvasId) worldRef.current.projectId = projectId;
-      setSessionsRev(r => r + 1);
-      bump();
-    }
-  };
   
-  window.tsSwitchToToday = () => {
-    if (worldRef.current.name === "Today's Stream") return; // already there
-    const store = loadStore();
-    let todayId = null;
-    for (const id in store) {
-      if (store[id].name === "Today's Stream") { todayId = id; break; }
-    }
-    if (todayId) {
-      openSession(todayId);
-    } else {
-      const newW = blankWorld();
-      newW.name = "Today's Stream";
-      switchWorld(newW);
-    }
-  };
+  // tsSwitchToToday is provided by useWorkspace hook (bound to window.tsSwitchToToday inside that hook)
 
   /* ---------- voice capture ---------- */
   const speechSupported = !!(window.SpeechRecognition || window.webkitSpeechRecognition);
