@@ -251,5 +251,5 @@ export function useGlobalInteractions({
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [undo, redo]);
+  }, []);
 }
