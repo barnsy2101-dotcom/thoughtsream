@@ -136,9 +136,9 @@ export function Sidebar({
           <button onClick={() => {
             onCreateNewProject();
           }} 
-          title="Create New Project Folder"
-          className="flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-neutral-200 border border-neutral-700/60 font-medium transition-colors">
-            <PlusIcon size={13} /> Project
+          title="Create New Project"
+          className="flex items-center gap-1 px-2.5 py-1.5 text-[11px] font-semibold uppercase tracking-wider bg-neutral-800/40 hover:bg-neutral-700/60 text-neutral-300 rounded-lg transition-colors border border-neutral-700/30">
+            <PlusIcon size={12} /> Project
           </button>
           <button onClick={() => setDrawerOpen(false)} className="ghost-btn p-1.5 rounded-lg text-inherit hover:bg-neutral-800/50">
             <XIcon size={18} />

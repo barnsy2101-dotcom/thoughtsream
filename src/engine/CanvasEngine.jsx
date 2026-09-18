@@ -11,6 +11,7 @@ import {
 
 const AnnotationsLayer = ({ worldRef, bump, persist }) => {
   const preview = useStore(s => s.drawingPreview);
+  const theme = useStore(s => s.theme);
   const annotations = worldRef.current.annotations || [];
   
   const handleDelete = (id) => {
@@ -23,23 +24,27 @@ const AnnotationsLayer = ({ worldRef, bump, persist }) => {
   const renderShape = (ann, isPreview = false) => {
     const { startX, startY, endX, endY, tool, id } = ann;
     
-    if (tool === 'rect') {
+    if (tool === 'rect' || tool === 'zone') {
       const minX = Math.min(startX, endX);
       const minY = Math.min(startY, endY);
       const w = Math.abs(endX - startX);
       const h = Math.abs(endY - startY);
       
+      const isZone = tool === 'zone';
+      
       return (
         <div key={id || 'preview'} className="absolute"
           style={{
             left: minX, top: minY, width: w, height: h,
-            border: '2.5px solid rgba(150,150,150,0.4)',
-            borderRadius: '12px',
-            backgroundColor: 'rgba(150,150,150,0.03)',
-            zIndex: 2,
+            border: isZone 
+              ? (theme === 'light' ? '2px dashed rgba(0,0,0,0.2)' : '2px dashed rgba(255,255,255,0.25)')
+              : '2.5px solid rgba(150,150,150,0.4)',
+            borderRadius: isZone ? '16px' : '12px',
+            backgroundColor: isZone ? 'transparent' : 'rgba(150,150,150,0.03)',
+            zIndex: isZone ? 0 : 2,
             pointerEvents: 'none',
           }}>
-          {!isPreview && (
+          {!isPreview && !isZone && (
             <button
               onClick={(e) => { e.stopPropagation(); handleDelete(id); }}
               className="absolute -top-3 -right-3 opacity-30 hover:opacity-100 bg-red-500/90 text-white rounded-full p-1.5 pointer-events-auto transition-opacity shadow-sm"
@@ -218,13 +223,18 @@ const renderCanvasDOM = (w, v, hidden, q, held, els) => {
     if (!n.isTopic) continue;
     const zel = zoneEls.current[n.id];
     if (!zel) continue;
-    if (hidden.has(n.id) || n.collapsed) { zel.style.display = 'none'; continue; }
+    if (hidden.has(n.id)) { zel.style.display = 'none'; continue; }
 
     const members = nodes.filter(m => m.topicId === n.id && !hidden.has(m.id));
     let maxMemberR = n.r + 70;
-    for (const m of members) {
-      const dist = Math.hypot(m.x - n.x, m.y - n.y) + m.r + 40;
-      if (dist > maxMemberR) maxMemberR = dist;
+    
+    if (n.collapsed) {
+      maxMemberR = n.r + 85; // Fixed compact aura for collapsed state
+    } else {
+      for (const m of members) {
+        const dist = Math.hypot(m.x - n.x, m.y - n.y) + m.r + 40;
+        if (dist > maxMemberR) maxMemberR = dist;
+      }
     }
 
     zel.style.display = '';
@@ -382,12 +392,6 @@ export const CanvasEngine = ({
     for (const n of w.nodes) {
       if (n.inInbox) hidden.add(n.id);
       if (n.isHub && n.collapsed) hubMembers(n.id).forEach(id => { const m = worldRef.current.nodes.find(x => x.id === id); if (m && !m.isHub) hidden.add(id); });
-      
-      if (n.isTopic && n.collapsed) {
-        w.nodes.forEach(m => {
-          if (m.topicId === n.id) hidden.add(m.id);
-        });
-      }
     }
     if (useStore.getState().replayIdx !== null) {
       const sorted = [...w.nodes].sort((a, b) => a.created - b.created);
@@ -412,11 +416,21 @@ export const CanvasEngine = ({
 
       const bounds = nodeBounds.current;
       for (const n of nodes) {
-        if (!bounds[n.id] && nodeEls.current[n.id]) {
-          bounds[n.id] = {
-            w: (nodeEls.current[n.id].offsetWidth || n.r * 2) / 2,
-            h: (nodeEls.current[n.id].offsetHeight || n.r * 2) / 2
-          };
+        const parentTopic = n.topicId ? byId(n.topicId) : null;
+        const isCollapsedThought = parentTopic?.collapsed && !n.isTopic && !n.isHub;
+        
+        if (isCollapsedThought) {
+          bounds[n.id] = { w: 8, h: 8 };
+        } else {
+          // If it was collapsed and just uncollapsed, clear the tiny bounds so it remeasures
+          if (bounds[n.id] && (bounds[n.id].w === 6 || bounds[n.id].w === 8)) delete bounds[n.id];
+          
+          if (!bounds[n.id] && nodeEls.current[n.id]) {
+            bounds[n.id] = {
+              w: (nodeEls.current[n.id].offsetWidth || n.r * 2) / 2,
+              h: (nodeEls.current[n.id].offsetHeight || n.r * 2) / 2
+            };
+          }
         }
       }
 
@@ -464,26 +478,22 @@ export const CanvasEngine = ({
             pointerEvents: 'none',
           }}
         >
-          {/* Zone body — subtle glass mat */}
+          {/* Zone body — no background, just outline */}
           <div
             className="absolute inset-0 rounded-2xl"
             style={{
-              background: theme === 'light'
-                ? 'rgba(0,0,0,0.04)'
-                : 'rgba(255,255,255,0.04)',
               border: theme === 'light'
-                ? '1.5px dashed rgba(0,0,0,0.18)'
-                : '1.5px dashed rgba(255,255,255,0.18)',
-              backdropFilter: 'blur(2px)',
-              WebkitBackdropFilter: 'blur(2px)',
+                ? '2px dashed rgba(0,0,0,0.2)'
+                : '2px dashed rgba(255,255,255,0.25)',
               borderRadius: '16px',
+              pointerEvents: 'none',
             }}
           />
           {/* Zone header — drag handle */}
           <div
             data-ui
             onPointerDown={onBubbleDown(z)}
-            className="absolute top-0 left-0 right-0 flex items-center justify-between px-3 py-2 rounded-t-2xl cursor-grab active:cursor-grabbing"
+            className="absolute top-0 left-0 right-0 flex items-center justify-center px-3 py-2 rounded-t-2xl cursor-grab active:cursor-grabbing"
             style={{
               pointerEvents: 'auto',
               background: theme === 'light'
@@ -496,19 +506,32 @@ export const CanvasEngine = ({
               touchAction: 'none',
             }}
           >
-            <span
-              className="text-[12px] font-semibold tracking-wide truncate"
-              style={{ color: theme === 'light' ? 'rgba(0,0,0,0.55)' : 'rgba(255,255,255,0.55)' }}
-            >
-              ▣ {z.title}
-            </span>
+            <div className="flex items-center justify-center max-w-[80%] pointer-events-none">
+              <span className="font-display font-bold text-[20px] sm:text-[22px] leading-snug mr-2" style={{ color: theme === 'light' ? 'rgba(0,0,0,0.55)' : 'rgba(255,255,255,0.55)' }}>▣</span>
+              <input
+                type="text"
+                value={z.title}
+                onPointerDown={e => e.stopPropagation()}
+                onChange={e => {
+                  z.title = e.target.value;
+                  w.updated = Date.now();
+                  bump();
+                  persist();
+                }}
+                className="font-display font-bold text-[20px] sm:text-[22px] leading-snug bg-transparent outline-none border-none text-center truncate pointer-events-auto"
+                style={{ 
+                  color: theme === 'light' ? 'rgba(0,0,0,0.55)' : 'rgba(255,255,255,0.55)',
+                  width: `${Math.max(z.title.length + 1, 5)}ch` 
+                }}
+              />
+            </div>
             <button
               data-ui
               type="button"
               title="Delete zone"
               onPointerDown={e => e.stopPropagation()}
               onClick={e => { e.stopPropagation(); deleteZone(z.id); }}
-              className="flex-shrink-0 ml-2 p-1 rounded-md transition-colors"
+              className="absolute right-3 p-1 rounded-md transition-colors"
               style={{
                 color: theme === 'light' ? 'rgba(0,0,0,0.35)' : 'rgba(255,255,255,0.35)',
                 pointerEvents: 'auto',
@@ -518,6 +541,21 @@ export const CanvasEngine = ({
             >
               <XIcon size={13} />
             </button>
+          </div>
+          
+          {/* Resize handle (Bottom Right) */}
+          <div
+            data-ui
+            onPointerDown={onBubbleDown(z, true)}
+            className="absolute bottom-0 right-0 w-8 h-8 cursor-nwse-resize z-10 flex items-end justify-end p-1.5"
+            style={{ pointerEvents: 'auto' }}
+          >
+            <div style={{
+              width: '10px', height: '10px',
+              borderRight: `2.5px solid ${theme === 'light' ? 'rgba(0,0,0,0.3)' : 'rgba(255,255,255,0.3)'}`,
+              borderBottom: `2.5px solid ${theme === 'light' ? 'rgba(0,0,0,0.3)' : 'rgba(255,255,255,0.3)'}`,
+              borderRadius: '2px'
+            }} />
           </div>
         </div>
       ))}
@@ -637,7 +675,7 @@ export const CanvasEngine = ({
         const c = COLORS[n.color % COLORS.length];
         const isSource = linkFrom === n.id;
         const isSel = selIds.has(n.id);
-        const memberCount = n.isHub ? hubMembers(n.id).length : 0;
+        const memberCount = n.isHub ? hubMembers(n.id).length : n.isTopic ? w.nodes.filter(m => m.topicId === n.id).length : 0;
 
         // -- Staging / hover highlight logic (for JSX border/cursor only; opacity is owned by RAF loop) --
         const hoveredSugg = hoveredSuggId && aiTopicSuggestions
@@ -658,6 +696,10 @@ export const CanvasEngine = ({
 
         const isAnsweredQuestion = n.isQuestion && w.links.some(l => l.a === n.id || l.b === n.id);
         const isUnansweredQuestion = n.isQuestion && !isAnsweredQuestion;
+        
+        const parentTopic = n.topicId ? w.nodes.find(m => m.id === n.topicId) : null;
+        const isCollapsedThought = parentTopic?.collapsed && !n.isTopic && !n.isHub;
+        
         return (
           <div key={n.id} data-bubble data-id={n.id}
             ref={el => { 
@@ -695,12 +737,21 @@ export const CanvasEngine = ({
                 border: n.isHub || n.isTopic
                   ? `1.5px solid ${isVacuumTargetTopic || isSuggTargetTopic || isSel || targetId === n.id || activeTopic === n.id ? (theme === 'light' ? '#000000' : '#FFFFFF') : (theme === 'light' ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.20)')}`
                   : `1.5px solid ${isUnansweredQuestion ? 'rgba(239, 68, 68, 0.85)' : isSource || isSel || targetId === n.id ? (theme === 'light' ? '#000000' : '#FFFFFF') : (n.topicId && n.color === 0 ? 'var(--surface-border)' : c.border)}`,
-                color: theme === 'light' ? '#1B1B1B' : '#EAEAEA',
+                color: isCollapsedThought ? 'transparent' : (theme === 'light' ? '#1B1B1B' : '#EAEAEA'),
                 boxShadow: n.isHub || n.isTopic
                   ? (theme === 'light' ? '0 12px 32px rgba(0,0,0,0.06)' : '0 12px 32px rgba(0,0,0,0.25)')
                   : 'var(--surface-shadow)',
                 maxWidth: n.isHub ? 260 : n.isTopic ? 240 : 250,
-                minWidth: n.isHub || n.isTopic ? 170 : 0,
+                minWidth: isCollapsedThought ? '16px' : (n.isHub || n.isTopic ? 170 : 0),
+                minHeight: isCollapsedThought ? '16px' : undefined,
+                width: isCollapsedThought ? '16px' : undefined,
+                height: isCollapsedThought ? '16px' : undefined,
+                padding: isCollapsedThought ? '0' : undefined,
+                borderRadius: isCollapsedThought ? '50%' : undefined,
+                overflow: isCollapsedThought ? 'hidden' : undefined,
+                display: isCollapsedThought ? 'flex' : undefined,
+                alignItems: isCollapsedThought ? 'center' : undefined,
+                justifyContent: isCollapsedThought ? 'center' : undefined,
                 ...(isSel || isVacuumTargetTopic || isSuggTargetTopic ? { outline: `2px solid ${theme === 'light' ? '#000000' : '#FFFFFF'}`, outlineOffset: 3 } : {}),
                 // Note: amber staging/hover outline is applied imperatively by renderCanvasDOM RAF loop
                 ...(focusedOutlineId === n.id ? { outline: `3px solid ${theme === 'light' ? '#3B82F6' : '#60A5FA'}`, outlineOffset: 4, boxShadow: `0 0 20px ${theme === 'light' ? 'rgba(59,130,246,0.4)' : 'rgba(96,165,250,0.4)'}` } : {}),
@@ -733,7 +784,7 @@ export const CanvasEngine = ({
                   <button type="button"
                     onClick={e => { e.stopPropagation(); cancelVacuum(); }}
                     className="p-1 rounded-full text-xs font-semibold hover:bg-neutral-700/40 text-neutral-400 hover:text-neutral-200 transition-colors"
-                    title="Cancel Vacuum mode">
+                    title="Cancel Topic Collector mode">
                     <XIcon size={13} />
                   </button>
                 </div>
@@ -741,40 +792,58 @@ export const CanvasEngine = ({
               {n.isHub && (
                 <span className="flex items-center gap-1 text-[11px] uppercase tracking-wider font-semibold mb-1"
                   style={{ color: theme === 'light' ? '#666666' : '#A3A3A3' }}>
-                  <SparkIcon size={12} /> Meta-Hub{n.collapsed ? ` · ${memberCount}` : ''}
+                  <SparkIcon size={12} /> Meta-Hub · {memberCount}
                 </span>
               )}
               {n.isTopic && (
-                <div className="flex items-center justify-between w-full mb-1 gap-2">
+                <div className="flex items-center justify-between w-full mb-1 gap-2 pr-8">
                   <span className="text-[11px] uppercase tracking-wider font-semibold truncate"
                     style={{ color: theme === 'light' ? '#666666' : '#A3A3A3' }}>
-                    ◆ Topic{activeTopic === n.id ? ' · active' : ''}{n.collapsed ? ` · ${w.nodes.filter(m => m.topicId === n.id).length}` : ''}
+                    ◆ Topic{activeTopic === n.id ? ' · active' : ''} · {memberCount}
                   </span>
-                  <div className="flex items-center gap-1 shrink-0">
-                    <button data-ui
-                      type="button"
-                      onPointerDown={e => e.stopPropagation()}
-                      onClick={e => { e.stopPropagation(); pushUndo(); n.collapsed = !n.collapsed; worldRef.current.updated = Date.now(); bump(); persist(); }}
-                      title={n.collapsed ? "Expand topic aura" : "Collapse topic aura"}
-                      className={'p-1 rounded-md transition-colors flex items-center justify-center '
-                        + (theme === 'light' ? 'text-gray-500 hover:text-gray-900 hover:bg-gray-200/60' : 'text-neutral-400 hover:text-neutral-200 hover:bg-neutral-700/50')}>
-                      {n.collapsed ? <UnfoldIcon size={13} /> : <FoldIcon size={13} />}
-                    </button>
-                    <button data-ui
-                      type="button"
-                      onPointerDown={e => e.stopPropagation()}
-                      onClick={e => { e.stopPropagation(); exportTopicMarkdown(n); }}
-                      title="Export Topic to Outline"
-                      className={'p-1 rounded-md transition-colors flex items-center justify-center '
-                        + (theme === 'light' ? 'text-gray-500 hover:text-gray-900 hover:bg-gray-200/60' : 'text-neutral-400 hover:text-neutral-200 hover:bg-neutral-700/50')}>
-                      <CopyIcon size={13} />
-                    </button>
-                  </div>
-
+                </div>
+              )}
+              {n.isTopic && (
+                <>
+                  <button data-ui
+                    type="button"
+                    onPointerDown={e => e.stopPropagation()}
+                    onClick={e => { e.stopPropagation(); exportTopicMarkdown(n); }}
+                    title="Export Topic to Outline"
+                    className={'absolute top-3 right-3.5 p-1.5 rounded-md transition-colors flex items-center justify-center '
+                      + (theme === 'light' ? 'text-gray-500 hover:text-gray-900 hover:bg-gray-200/60' : 'text-neutral-400 hover:text-neutral-200 hover:bg-neutral-700/50')}>
+                    <CopyIcon size={16} />
+                  </button>
+                  <button data-ui
+                    type="button"
+                    onPointerDown={e => e.stopPropagation()}
+                    onClick={e => { e.stopPropagation(); pushUndo(); n.collapsed = !n.collapsed; worldRef.current.updated = Date.now(); bump(); persist(); }}
+                    title={n.collapsed ? "Expand topic aura" : "Collapse topic aura"}
+                    className={'absolute bottom-3 right-3.5 p-1.5 rounded-md transition-colors flex items-center justify-center '
+                      + (theme === 'light' ? 'text-gray-500 hover:text-gray-900 hover:bg-gray-200/60' : 'text-neutral-400 hover:text-neutral-200 hover:bg-neutral-700/50')}
+                  >
+                    {n.collapsed ? <UnfoldIcon size={18} /> : <FoldIcon size={18} />}
+                  </button>
+                </>
+              )}
+              {n.isTopic && n.collapsed && (
+                <div 
+                  className="absolute bottom-0 left-0 translate-y-1/2 -translate-x-1/3 rounded-full flex items-center justify-center font-bold shadow-sm pointer-events-none"
+                  style={{ 
+                    background: theme === 'light' ? '#1B1B1B' : '#FFFFFF',
+                    color: theme === 'light' ? '#FFFFFF' : '#1B1B1B',
+                    minWidth: '22px', 
+                    height: '22px', 
+                    fontSize: '11px',
+                    padding: '0 6px',
+                    border: `2px solid ${theme === 'light' ? '#FFFFFF' : '#2A2A2A'}`
+                  }}
+                >
+                  {w.nodes.filter(m => m.topicId === n.id).length}
                 </div>
               )}
               <span className={n.isHub || n.isTopic ? 'font-display font-bold text-[20px] sm:text-[22px] leading-snug' : 'text-[15px] sm:text-[16px] leading-relaxed font-semibold'}
-                style={{ wordBreak: 'break-word', color: theme === 'light' ? '#1B1B1B' : '#EAEAEA' }}
+                style={{ wordBreak: 'break-word', display: isCollapsedThought ? 'none' : undefined, color: theme === 'light' ? '#1B1B1B' : '#EAEAEA' }}
                 onDoubleClick={(e) => {
                   if (n.isTopic || n.isHub) {
                     e.stopPropagation();

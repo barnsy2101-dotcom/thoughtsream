@@ -50,3 +50,7 @@ export const MapPinIcon = ({ size=16, className="" }) => (
     <circle cx="12" cy="10" r="3"/>
   </svg>
 );
+export const MousePointerIcon = (p) => <Icon {...p} d={<path d="m3 3 7 18 3-7 7-3L3 3z"/>} />;
+export const HandIcon = (p) => <Icon {...p} d={<><path d="M18 11V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v0"/><path d="M14 10V4a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v2"/><path d="M10 10.5V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v8"/><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"/></>} />;
+export const SidebarRightIcon = (p) => <Icon {...p} d={<><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="15" y1="3" x2="15" y2="21"/></>} />;
+export const FrameIcon = (p) => <Icon {...p} d={<><path d="M22 14.5v-5"/><path d="M14.5 22h-5"/><path d="M22 20a2 2 0 0 1-2 2"/><path d="M2 14.5v-5"/><path d="M14.5 2h-5"/><path d="M2 4a2 2 0 0 1 2-2"/><path d="M4 22a2 2 0 0 1-2-2"/><path d="M22 4a2 2 0 0 0-2-2"/></>} />;

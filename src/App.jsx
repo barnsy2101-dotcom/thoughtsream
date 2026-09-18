@@ -23,6 +23,7 @@ import { SettingsModal } from './components/SettingsModal';
 import { EditThoughtModal } from './components/EditThoughtModal';
 import { Toolbar } from './components/Toolbar';
 import { TimerMenu } from './components/TimerMenu';
+import { ShortcutsModal } from './components/ShortcutsModal';
 
 // 6. Utils
 import { LS_CURRENT, LS_LAST_ACTIVE, LS_HISTORY } from './utils/constants';
@@ -72,8 +73,8 @@ function App() {
   const setApiKey = useStore(s => s.setApiKey);
   const targetId = useStore(s => s.targetId);
   const setTargetId = useStore(s => s.setTargetId);
-  const pureDump = useStore(s => s.pureDump);
-  const setPureDump = useStore(s => s.setPureDump);
+  const focusMode = useStore(s => s.focusMode);
+  const setFocusMode = useStore(s => s.setFocusMode);
   const activeTopic = useStore(s => s.activeTopic);
   const setActiveTopic = useStore(s => s.setActiveTopic);
   const topicMenuOpen = useStore(s => s.topicMenuOpen);
@@ -116,10 +117,12 @@ function App() {
   const stagingNodeIds = useStore(s => s.stagingNodeIds);
   const setStagingNodeIds = useStore(s => s.setStagingNodeIds);
   const aiTopicSuggestions = useStore(s => s.aiTopicSuggestions);
+  const canvasMode = useStore(s => s.canvasMode);
 
 
   // 2. Local State & Initializers
   const [sessionsRev, setSessionsRev] = useState(0);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
 
   useEffect(() => { useStore.getState().vacuumTopicId = vacuumTopicId; }, [vacuumTopicId]);
   useEffect(() => { useStore.getState().vacuumSelectedIds = vacuumSelectedIds; }, [vacuumSelectedIds]);
@@ -329,7 +332,7 @@ function App() {
   useEffect(() => { useStore.getState().replayIdx = replayIdx; }, [replayIdx]);
   useEffect(() => { useStore.getState().apiKey = apiKey; }, [apiKey]);
   useEffect(() => { useStore.getState().targetId = targetId; }, [targetId]);
-  useEffect(() => { useStore.getState().pureDump = pureDump; }, [pureDump]);
+  useEffect(() => { useStore.getState().focusMode = focusMode; }, [focusMode]);
   useEffect(() => { useStore.getState().activeTopic = activeTopic; }, [activeTopic]);
   useEffect(() => { useStore.getState().activeSorterTopicId = activeSorterTopicId; }, [activeSorterTopicId]);
 
@@ -542,6 +545,7 @@ function App() {
     setFocusedOutlineId, setActiveSorterTopicId, setVacuumTopicId,
     setVacuumSelectedIds, setReplayIdx, setDrawerOpen, setSettingsOpen,
     setMenuOpen, setTopicMenuOpen, setTimerMenuOpen,
+    setShortcutsOpen,
   });
 
   useEffect(() => {
@@ -763,27 +767,39 @@ function App() {
       return;
     }
 
-    if (e.shiftKey) {
-      marqueeStartRef.current = { sx: e.clientX, sy: e.clientY };
-      return;
-    }
     // Cancel staging mode when clicking the background
-    const { stagingSuggId: currentStagingSuggId } = useStore.getState();
+    const { stagingSuggId: currentStagingSuggId, canvasMode } = useStore.getState();
     if (currentStagingSuggId) {
       useStore.getState().setStagingSuggId(null);
       useStore.getState().setStagingNodeIds(new Set());
       return;
     }
+
+    if (e.shiftKey || canvasMode === 'select') {
+      marqueeStartRef.current = { sx: e.clientX, sy: e.clientY };
+      if (!e.shiftKey) {
+        setActiveLink(null); setLinkFrom(null); setSelIds(new Set()); setTargetId(null); setTopicMenuOpen(false);
+        setVacuumTopicId(null); setVacuumSelectedIds(new Set());
+      }
+      return;
+    }
+
     panRef.current = { sx: e.clientX, sy: e.clientY, vx: viewRef.current.x, vy: viewRef.current.y };
     setActiveLink(null); setLinkFrom(null); setSelIds(new Set()); setTargetId(null); setTopicMenuOpen(false);
     setVacuumTopicId(null); setVacuumSelectedIds(new Set());
   };
-  const onBubbleDown = (node) => (e) => {
+  const onBubbleDown = (node, isZoneResize = false) => (e) => {
     e.stopPropagation();
 
-    // ── ZONE DRAG ──────────────────────────────────────────────────────────
+    // ── ZONE DRAG / RESIZE ──────────────────────────────────────────────────────────
     if (node.type === 'zone') {
       e.currentTarget.setPointerCapture(e.pointerId);
+      
+      if (isZoneResize) {
+        dragRef.current = { node, sx: e.clientX, sy: e.clientY, startW: node.width, startH: node.height, isZoneResize: true, moved: false };
+        return;
+      }
+      
       const p = screenToWorld(e.clientX, e.clientY);
       const w = worldRef.current;
       // Collect nodes whose center sits inside this zone's bounding box
@@ -894,7 +910,7 @@ function App() {
 
   return (
     <>
-      <div ref={containerRef} className={`fixed top-0 left-0 bottom-0 select-none ${activeSorterTopicId ? 'cursor-crosshair' : ''} ${isPlacingMarker ? 'is-placing-marker' : ''}`} 
+      <div ref={containerRef} className={`fixed top-0 left-0 bottom-0 select-none ${activeSorterTopicId ? 'cursor-crosshair' : ''} ${isPlacingMarker ? 'is-placing-marker' : ''} ${!activeSorterTopicId && !isPlacingMarker ? `canvas-mode-${canvasMode}` : ''}`} 
            style={{ right: splitViewOpen ? '380px' : '0', transition: 'right 0.3s cubic-bezier(0.16, 1, 0.3, 1)' }} 
            onPointerDown={onBackgroundDown}
            onDragOver={(e) => e.preventDefault()}
@@ -1032,7 +1048,6 @@ function App() {
         redoStackLength={redoStack.current.length} 
         runAI={runAI} 
         nodesLength={w.nodes.length}
-        createZone={createZone}
       />
 
       {/* edit modal */}
@@ -1050,6 +1065,9 @@ function App() {
 
       {/* settings modal */}
       <SettingsModal onApiKeySet={() => { lastAIHashRef.current = ''; runAI(); }} onClose={focusInput} />
+
+      {/* keyboard shortcuts modal */}
+      {shortcutsOpen && <ShortcutsModal onClose={() => setShortcutsOpen(false)} />}
 
       <Sidebar 
         sessionList={sessionList} 

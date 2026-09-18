@@ -33,6 +33,8 @@ export function useGlobalInteractions({
   setVacuumSelectedIds, setReplayIdx, setDrawerOpen, setSettingsOpen,
   setExportOpen, setMenuOpen, setTopicMenuOpen, setTimerMenuOpen,
   setMoveTopicMenuOpen,
+  // Shortcuts modal
+  setShortcutsOpen,
 }) {
 
   // ── 1. Wheel → zoom ────────────────────────────────────────────────────────
@@ -87,22 +89,32 @@ export function useGlobalInteractions({
       if (dragRef.current) {
         const d = dragRef.current;
         const p = screenToWorld(e.clientX, e.clientY);
-        for (const g of d.group) {
-          const oldX = g.n.x;
-          const oldY = g.n.y;
-          const newX = p.x - g.offX;
-          const newY = p.y - g.offY;
-          const deltaX = newX - oldX;
-          const deltaY = newY - oldY;
+        
+        if (d.isZoneResize) {
+           const dx = (e.clientX - d.sx) / viewRef.current.s;
+           const dy = (e.clientY - d.sy) / viewRef.current.s;
+           d.node.width = Math.max(150, d.startW + dx);
+           d.node.height = Math.max(100, d.startH + dy);
+           worldRef.current.updated = Date.now();
+           bump();
+        } else {
+          for (const g of d.group) {
+            const oldX = g.n.x;
+            const oldY = g.n.y;
+            const newX = p.x - g.offX;
+            const newY = p.y - g.offY;
+            const deltaX = newX - oldX;
+            const deltaY = newY - oldY;
 
-          g.n.x = newX;
-          g.n.y = newY;
-          if (g.n.sleeping) g.n.sleeping = false;
+            g.n.x = newX;
+            g.n.y = newY;
+            if (g.n.sleeping) g.n.sleeping = false;
 
-          if (g.n.isTopic) {
-            const children = worldRef.current.nodes.filter(c => c.topicId === g.n.id && !d.group.some(dg => dg.n === c));
-            for (const child of children) {
-              if (child.sleeping) child.sleeping = false;
+            if (g.n.isTopic) {
+              const children = worldRef.current.nodes.filter(c => c.topicId === g.n.id && !d.group.some(dg => dg.n === c));
+              for (const child of children) {
+                if (child.sleeping) child.sleeping = false;
+              }
             }
           }
         }
@@ -114,10 +126,8 @@ export function useGlobalInteractions({
       if (drawingPreview) {
         if (Math.hypot(drawingPreview.endX - drawingPreview.startX, drawingPreview.endY - drawingPreview.startY) > 5) {
           pushUndo();
-          if (!worldRef.current.annotations) worldRef.current.annotations = [];
-          
           let { startX, startY, endX, endY } = drawingPreview;
-          if (drawingPreview.tool === 'rect') {
+          if (drawingPreview.tool === 'rect' || drawingPreview.tool === 'zone') {
              // normalize rect
              const minX = Math.min(startX, endX);
              const maxX = Math.max(startX, endX);
@@ -129,14 +139,30 @@ export function useGlobalInteractions({
              endY = maxY;
           }
 
-          worldRef.current.annotations.push({
-            id: 'ann_' + Date.now(),
-            tool: drawingPreview.tool,
-            startX,
-            startY,
-            endX,
-            endY
-          });
+          if (drawingPreview.tool === 'zone') {
+            if (!worldRef.current.zones) worldRef.current.zones = [];
+            worldRef.current.zones.push({
+              id: 'zone_' + Date.now(),
+              type: 'zone',
+              title: 'New Zone',
+              x: startX,
+              y: startY,
+              width: endX - startX,
+              height: endY - startY,
+              color: 0,
+            });
+          } else {
+            if (!worldRef.current.annotations) worldRef.current.annotations = [];
+            worldRef.current.annotations.push({
+              id: 'ann_' + Date.now(),
+              tool: drawingPreview.tool,
+              startX,
+              startY,
+              endX,
+              endY
+            });
+          }
+          
           worldRef.current.updated = Date.now();
           bump();
           persist();
@@ -195,19 +221,24 @@ export function useGlobalInteractions({
             setSelIds(new Set([d.node.id]));
           }
         } else if (d.moved) {
-          for (const g of d.group) {
-            if (g.n.isTopic || g.n.isHub || !g.n.topicId) {
-              g.n.userMoved = true;
-              g.n.vx = 0;
-              g.n.vy = 0;
-            } else {
-              g.n.userMoved = false;
-              g.n.vx = 0;
-              g.n.vy = 0;
-              const parentTopic = byId(g.n.topicId);
-              if (parentTopic) {
-                g.n.offsetX = Math.round(g.n.x - parentTopic.x);
-                g.n.offsetY = Math.round(g.n.y - parentTopic.y);
+          if (d.isZoneResize) {
+            worldRef.current.updated = Date.now();
+            persist();
+          } else if (d.group) {
+            for (const g of d.group) {
+              if (g.n.isTopic || g.n.isHub || !g.n.topicId) {
+                g.n.userMoved = true;
+                g.n.vx = 0;
+                g.n.vy = 0;
+              } else {
+                g.n.userMoved = false;
+                g.n.vx = 0;
+                g.n.vy = 0;
+                const parentTopic = byId(g.n.topicId);
+                if (parentTopic) {
+                  g.n.offsetX = Math.round(g.n.x - parentTopic.x);
+                  g.n.offsetY = Math.round(g.n.y - parentTopic.y);
+                }
               }
             }
           }
@@ -226,6 +257,13 @@ export function useGlobalInteractions({
   useEffect(() => {
     const onKey = (e) => {
       const typing = /INPUT|TEXTAREA/.test(document.activeElement && document.activeElement.tagName);
+
+      // '?' → open shortcuts modal (only when not typing in an input/textarea)
+      if (e.key === '?' && !typing) {
+        e.preventDefault();
+        if (setShortcutsOpen) setShortcutsOpen(open => !open);
+        return;
+      }
       
       // Auto-focus typing mechanic: if pressing a regular character key while not typing, focus input
       if (!typing && e.key.length === 1 && !e.metaKey && !e.ctrlKey && !e.altKey) {
@@ -273,6 +311,7 @@ export function useGlobalInteractions({
 
         setTimerMenuOpen(false);
         setMoveTopicMenuOpen(false);
+        if (setShortcutsOpen) setShortcutsOpen(false);
         
         // Reset drawing tools
         const store = useStore.getState();

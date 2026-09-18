@@ -109,7 +109,7 @@ export function useAI({
   };
 
   const runAI = useCallback(async () => {
-    if (useStore.getState().pureDump) return;
+    if (useStore.getState().focusMode) return;
     const w = worldRef.current;
     if (!w) return;
     const thoughts = w.nodes.filter(n => !n.isTopic && !n.isHub && !n.topicId && n.text.trim());

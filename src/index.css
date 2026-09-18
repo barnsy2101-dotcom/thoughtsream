@@ -84,6 +84,10 @@
     background-image: radial-gradient(var(--dot-color) 1px, transparent 1px);
     background-size: 26px 26px;
   }
+  .canvas-mode-hand { cursor: grab; }
+  .canvas-mode-hand:active { cursor: grabbing; }
+  .canvas-mode-select { cursor: crosshair; }
+
   .bubble { position: absolute; left: 0; top: 0; cursor: grab; user-select: none; touch-action: none; will-change: transform; }
   .bubble:active { cursor: grabbing; }
   .bubble-core {

@@ -42,7 +42,7 @@ export function TopicMenu({ topics, nodes, createTopic }) {
             <span className="text-neutral-600 text-[11px] shrink-0">{nodes.filter(n => n.topicId === t.id).length}</span>
           </button>
           <button type="button" onClick={() => { setActiveSorterTopicId(activeSorterTopicId === t.id ? null : t.id); setTopicMenuOpen(false); }}
-            title={activeSorterTopicId === t.id ? "Disable Quick-Sorter" : `Enable Quick-Sorter: click bubbles to send them to "${t.title}"`}
+            title={activeSorterTopicId === t.id ? "Disable Topic Collector" : `Enable Topic Collector: click bubbles to send them to "${t.title}"`}
             className={'w-8 h-8 rounded-lg flex items-center justify-center shrink-0 border transition-colors ' + (activeSorterTopicId === t.id ? 'text-amber-300 bg-amber-500/20 border-amber-400/40' : 'text-neutral-500 hover:text-neutral-300 border-transparent hover:bg-neutral-700/40')}>
             <SparkIcon size={12} className={activeSorterTopicId === t.id ? "animate-pulse" : ""} />
           </button>

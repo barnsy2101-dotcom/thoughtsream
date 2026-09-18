@@ -136,7 +136,7 @@ export const applyTopicGravity = (nodes, hidden, bounds, fixed, held) => {
 
     // Calculate a dynamic boundary that expands as more bubbles are added
     const baseRadius = t.r || 74;
-    const auraRadius = baseRadius + 100 + (members.length * 18);
+    const auraRadius = t.collapsed ? (baseRadius + 20) : (baseRadius + 100 + (members.length * 18));
 
     for (const n of members) {
       if (held(n)) continue;
@@ -146,7 +146,15 @@ export const applyTopicGravity = (nodes, hidden, bounds, fixed, held) => {
       const dist = Math.hypot(dx, dy) || 0.01;
 
       // SOFT FENCE: Only apply gravity if the bubble gets pushed OUTSIDE the aura boundary
-      if (dist > auraRadius && !fixed(n)) {
+      if (t.collapsed) {
+        if (n.sleeping) n.sleeping = false;
+        // Strong magnetic pull towards the exact auraRadius boundary
+        const pullForce = (dist - auraRadius) * 0.05; 
+        if (!fixed(n)) {
+          n.vx += (dx / dist) * pullForce;
+          n.vy += (dy / dist) * pullForce;
+        }
+      } else if (dist > auraRadius && !fixed(n)) {
         if (n.sleeping) n.sleeping = false;
         
         // Gentle spring force to nudge it back inside the boundary

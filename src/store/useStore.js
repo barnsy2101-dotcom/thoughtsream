@@ -10,6 +10,9 @@ export const useStore = create((set) => ({
     set({ theme });
   },
 
+  canvasMode: 'hand',
+  setCanvasMode: (val) => set({ canvasMode: val }),
+
   drawerOpen: false,
   setDrawerOpen: (val) => set({ drawerOpen: val }),
 
@@ -82,8 +85,8 @@ export const useStore = create((set) => ({
   targetId: null,
   setTargetId: (val) => set({ targetId: val }),
 
-  pureDump: false,
-  setPureDump: (val) => set({ pureDump: val }),
+  focusMode: false,
+  setFocusMode: (val) => set({ focusMode: val }),
 
   activeTopic: null,
   setActiveTopic: (val) => set({ activeTopic: val }),

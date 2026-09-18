@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useStore } from '../../store/useStore';
 import { 
   XIcon, SparkIcon, ChevronDownIcon, SearchIcon, PlusIcon, 
-  LibraryIcon, MicIcon, SendIcon 
+  LibraryIcon, MicIcon, SendIcon, SidebarRightIcon 
 } from '../icons';
 import { TopicMenu } from '../TopicMenu';
 import { HeaderMenu } from '../HeaderMenu';
@@ -45,7 +45,7 @@ export const UIOverlay = ({
   
   const drawerOpen = useStore(s => s.drawerOpen);
   const setDrawerOpen = useStore(s => s.setDrawerOpen);
-  const pureDump = useStore(s => s.pureDump);
+  const focusMode = useStore(s => s.focusMode);
   const selIds = useStore(s => s.selIds);
   const setSelIds = useStore(s => s.setSelIds);
   const activeSorterTopicId = useStore(s => s.activeSorterTopicId);
@@ -71,6 +71,7 @@ export const UIOverlay = ({
   const [slashIsDouble, setSlashIsDouble] = useState(false);
   const [slashIndex, setSlashIndex] = useState(0);
   const [moveTopicMenuOpen, setMoveTopicMenuOpen] = useState(false);
+  const [tipsOpen, setTipsOpen] = useState(false);
 
   React.useEffect(() => {
     if (selIds.size === 0) {
@@ -98,7 +99,7 @@ export const UIOverlay = ({
     const val = e.target.value;
     setInput(val);
 
-    const doubleSlashMatch = val.match(/(?:^|\s)\/\/(.*)$/);
+    const doubleSlashMatch = val.match(/(?:^|\s)\/\/([^\s]*)$/);
     if (doubleSlashMatch) {
       setSlashQuery(doubleSlashMatch[1]);
       setSlashIsDouble(true);
@@ -176,7 +177,7 @@ export const UIOverlay = ({
           if (slashQuery.trim()) {
             const t = createTopic(slashQuery.trim());
             if (t) {
-              const newVal = input.replace(/(?:^|\s)\/\/.*$/, '');
+              const newVal = input.replace(/(?:^|\s)\/\/([^\s]*)$/, '');
               setInput(newVal);
               setSlashQuery(null);
               setSlashIsDouble(false);
@@ -197,7 +198,7 @@ export const UIOverlay = ({
         e.preventDefault();
         const selected = filteredTopics[slashIndex];
         if (selected) {
-           const newVal = input.replace(/(?:^|\s)\/[a-zA-Z0-9_-]*$/, '');
+           const newVal = input.replace(/(?:^|\s)\/([a-zA-Z0-9_-]*)$/, '');
            setInput(newVal);
            setSlashQuery(null);
            useStore.getState().setActiveTopic(selected.id);
@@ -210,26 +211,46 @@ export const UIOverlay = ({
 
   return (
     <>
-      {/* linking / replay / quick-sorter hint */}
-      {(linkFrom || replaying || activeSorterTopicId) && (
-        <div data-ui className="glass absolute top-20 left-1/2 -translate-x-1/2 rounded-full px-4 py-1.5 text-sm z-30 flex items-center gap-2">
-          {replaying && <span className="text-neutral-200">Replaying your stream of thoughts…</span>}
-          {linkFrom === 'toolbar_active' && <span className="text-neutral-200"><span className="text-cyan-300 font-bold mr-1">↗ Arrow Mode:</span> Click any thought to set source (ESC to cancel)</span>}
-          {linkFrom && linkFrom !== 'toolbar_active' && <span className="text-neutral-200"><span className="text-cyan-300 font-bold mr-1">↗ Arrow Mode:</span> Click a target thought to connect (ESC to cancel)</span>}
-          {!replaying && !linkFrom && activeSorterTopicId && (
-            <>
-              <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse shrink-0" />
-              <span className="text-amber-200 font-medium">Quick-Sorter Active:</span>
-              <span className="text-neutral-200">Click any unsorted bubble to file under <span className="text-neutral-100 font-semibold">“{byId(activeSorterTopicId)?.title}”</span></span>
-              <button onClick={() => setActiveSorterTopicId(null)} className="ml-2 text-neutral-400 hover:text-neutral-200 text-xs font-semibold px-2 py-0.5 rounded bg-neutral-800/80 border border-neutral-700/60 transition-colors">Cancel</button>
-            </>
-          )}
-        </div>
-      )}
+      <div className="absolute top-[72px] left-1/2 -translate-x-1/2 flex flex-col items-center gap-2 z-40 pointer-events-none">
+        {/* linking / replay / quick-sorter hint */}
+        {(linkFrom || replaying || activeSorterTopicId) && (
+          <div data-ui className="glass rounded-full px-4 py-1.5 text-sm flex items-center gap-2 pointer-events-auto shadow-md">
+            {replaying && <span className="text-neutral-200">Replaying your stream of thoughts…</span>}
+            {linkFrom === 'toolbar_active' && <span className="text-neutral-200"><span className="text-cyan-300 font-bold mr-1">↗ Arrow Mode:</span> Click any thought to set source (ESC to cancel)</span>}
+            {linkFrom && linkFrom !== 'toolbar_active' && <span className="text-neutral-200"><span className="text-cyan-300 font-bold mr-1">↗ Arrow Mode:</span> Click a target thought to connect (ESC to cancel)</span>}
+            {!replaying && !linkFrom && activeSorterTopicId && (
+              <>
+                <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse shrink-0" />
+                <span className="text-amber-200 font-medium">Topic Collector Active:</span>
+                <span className="text-neutral-200">Click any unsorted bubble to file under <span className="text-neutral-100 font-semibold">“{byId(activeSorterTopicId)?.title}”</span></span>
+                <button onClick={() => setActiveSorterTopicId(null)} className="ml-2 text-neutral-400 hover:text-neutral-200 text-xs font-semibold px-2 py-0.5 rounded bg-neutral-800/80 border border-neutral-700/60 transition-colors">Cancel</button>
+              </>
+            )}
+          </div>
+        )}
+
+        {/* unexported notes banner */}
+        {unexportedArchiveAlert && (
+          <div data-ui className="glass rounded-full px-4 py-2 text-[13px] flex items-center gap-3 border border-amber-500/30 bg-amber-500/10 pointer-events-auto shadow-lg">
+            <span className="text-amber-200">Yesterday's stream has unexported notes.</span>
+            <button onClick={() => {
+               const store = loadStore();
+               if (store[unexportedArchiveAlert.id]) {
+                 persist();
+                 localStorage.setItem(LS_CURRENT, unexportedArchiveAlert.id);
+                 window.location.reload();
+               }
+            }} className="bg-amber-500/20 hover:bg-amber-500/30 text-amber-100 px-2 py-1 rounded font-medium transition-colors">
+              View Past Stream
+            </button>
+            <button onClick={() => setUnexportedArchiveAlert(null)} className="text-neutral-400 hover:text-neutral-200 p-1"><XIcon size={14}/></button>
+          </div>
+        )}
+      </div>
 
       {/* Selection Toolbar */}
       {selIds.size > 0 && !activeSorterTopicId && !linkFrom && (
-        <div data-ui className="absolute bottom-[116px] left-1/2 -translate-x-1/2 flex items-center gap-2.5 bg-neutral-900/90 border border-neutral-700/60 rounded-full px-4 py-2 shadow-2xl z-50 animate-pop-in backdrop-blur-xl pointer-events-auto select-none">
+        <div data-ui className="absolute bottom-[116px] left-1/2 -translate-x-1/2 flex items-center gap-2.5 bg-neutral-900/90 border border-neutral-500/50 rounded-full px-4 py-2 shadow-[0_0_20px_rgba(255,255,255,0.15)] z-[100] animate-pop-in backdrop-blur-xl pointer-events-auto select-none">
           <span className="text-neutral-300 text-sm font-medium mr-2">{selIds.size} selected</span>
           <button onClick={() => deleteNodes(selIds)} className="text-xs bg-red-500/20 hover:bg-red-500/30 text-red-300 px-3 py-1.5 rounded-full font-medium transition-colors border border-red-500/20">Delete</button>
           
@@ -309,23 +330,7 @@ export const UIOverlay = ({
         </div>
       )}
 
-      {/* unexported notes banner */}
-      {unexportedArchiveAlert && (
-        <div data-ui className="glass absolute top-[72px] left-1/2 -translate-x-1/2 rounded-full px-4 py-2 text-[13px] z-30 flex items-center gap-3 border border-amber-500/30 bg-amber-500/10 pointer-events-auto shadow-lg">
-          <span className="text-amber-200">Yesterday's stream has unexported notes.</span>
-          <button onClick={() => {
-             const store = loadStore();
-             if (store[unexportedArchiveAlert.id]) {
-               persist();
-               localStorage.setItem(LS_CURRENT, unexportedArchiveAlert.id);
-               window.location.reload();
-             }
-          }} className="bg-amber-500/20 hover:bg-amber-500/30 text-amber-100 px-2 py-1 rounded font-medium transition-colors">
-            View Past Stream
-          </button>
-          <button onClick={() => setUnexportedArchiveAlert(null)} className="text-neutral-400 hover:text-neutral-200 p-1"><XIcon size={14}/></button>
-        </div>
-      )}
+
 
       {/* header pill */}
       <header data-ui className="glass absolute top-3 left-1/2 -translate-x-1/2 h-12 flex items-center gap-1.5 px-3 z-40 rounded-2xl max-w-[96vw] whitespace-nowrap">
@@ -401,10 +406,7 @@ export const UIOverlay = ({
                          {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                        </optgroup>
                      )}
-                     <optgroup label="Actions">
-                       <option value="new_project">+ New Canvas</option>
-                     </optgroup>
-                   </>
+                    </>
                  );
               })()}
             </select>
@@ -430,7 +432,7 @@ export const UIOverlay = ({
         <div className="w-px h-5 bg-neutral-600/30 mx-1 hidden sm:block" />
         <button onClick={() => setSplitViewOpen(!splitViewOpen)} title="Toggle Live Outline"
           className={`ghost-btn flex items-center gap-1.5 text-[13px] rounded-lg px-2.5 py-1.5 whitespace-nowrap transition-colors ${splitViewOpen ? 'bg-neutral-200 text-neutral-900 font-bold hover:bg-white' : 'text-neutral-300'}`}>
-          <span className="hidden lg:inline">Split View</span>
+          <SidebarRightIcon size={14} /> <span className="hidden lg:inline">Split View</span>
         </button>
 
         {/* Settings Gear Dropdown Menu */}
@@ -455,7 +457,7 @@ export const UIOverlay = ({
       )}
 
       {/* AI error note */}
-      {aiNote && !pureDump && (
+      {aiNote && !focusMode && (
         <div data-ui className="glass absolute bottom-24 right-3 rounded-xl px-3 py-2 text-xs text-amber-300/90 z-30 max-w-[260px]">
           AI fallback: {aiNote}
           <button onClick={() => setAiNote('')} className="ml-2 text-neutral-500 hover:text-neutral-300">✕</button>
@@ -499,7 +501,7 @@ export const UIOverlay = ({
           {activeSorterTopicId || activeTopicNode ? (
             <div
               onClick={() => setTopicMenuOpen(o => !o)}
-              title={activeSorterTopicId ? `Quick-Sorter active for: ${byId(activeSorterTopicId)?.title}` : `Routing to: ${activeTopicNode?.title}`}
+              title={activeSorterTopicId ? `Topic Collector active for: ${byId(activeSorterTopicId)?.title}` : `Routing to: ${activeTopicNode?.title}`}
               className={`flex items-center gap-2 shrink-0 rounded-full px-3 h-8.5 text-xs sm:text-sm transition-all duration-200 border cursor-pointer select-none ${
                 activeSorterTopicId
                   ? 'bg-amber-500/20 border-amber-400/50 text-amber-300 font-semibold shadow-inner'
@@ -552,7 +554,7 @@ export const UIOverlay = ({
                     if (slashQuery.trim()) {
                       const t = createTopic(slashQuery.trim());
                       if (t) {
-                        const newVal = input.replace(/(?:^|\s)\/\/.*$/, '');
+                        const newVal = input.replace(/(?:^|\s)\/\/([^\s]*)$/, '');
                         setInput(newVal);
                         setSlashQuery(null);
                         setSlashIsDouble(false);
@@ -574,7 +576,7 @@ export const UIOverlay = ({
                   <div key={topic.id}
                        className="px-3 py-1.5 text-[13px] font-medium cursor-pointer transition-colors"
                        onClick={() => {
-                         const newVal = input.replace(/(?:^|\s)\/[a-zA-Z0-9_-]*$/, '');
+                         const newVal = input.replace(/(?:^|\s)\/([a-zA-Z0-9_-]*)$/, '');
                          setInput(newVal);
                          setSlashQuery(null);
                          useStore.getState().setActiveTopic(topic.id);
@@ -598,7 +600,7 @@ export const UIOverlay = ({
           <input id="thought-input" autoFocus value={input} onChange={handleInputChange} onKeyDown={handleInputKeyDown} onPaste={onPaste}
             placeholder={
               activeSorterTopicId
-                ? `Quick-Sorter active for “${byId(activeSorterTopicId)?.title}”…`
+                ? `Topic Collector active for “${byId(activeSorterTopicId)?.title}”…`
                 : activeTopicNode
                   ? `Adding to “${activeTopicNode.title}”…`
                   : 'Drop a thought…'
@@ -617,9 +619,47 @@ export const UIOverlay = ({
             <SendIcon size={16} />
           </button>
         </div>
-        <p className="text-center text-[11px] text-neutral-500/80 mt-2 font-medium">
-          Enter to add · ◆ pick a Topic to cluster thoughts · 💬 thread replies · drag 🔗 to link · 📌 pin
-        </p>
+        {/* Tips pill + popover */}
+        <div className="relative flex justify-center mt-2">
+          <button
+            type="button"
+            onClick={() => setTipsOpen(o => !o)}
+            className="flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-medium text-neutral-500 hover:text-neutral-300 border border-neutral-700/40 hover:border-neutral-600/60 bg-neutral-900/30 hover:bg-neutral-800/40 transition-all select-none"
+          >
+            <span className="text-[10px]">💡</span>
+            Tips
+          </button>
+
+          {tipsOpen && (
+            <>
+              {/* Dismiss layer */}
+              <div className="fixed inset-0 z-40" onClick={() => setTipsOpen(false)} />
+              {/* Popover card */}
+              <div
+                className="absolute bottom-full mb-2.5 left-1/2 -translate-x-1/2 z-50 w-64 rounded-2xl border border-neutral-700/60 bg-neutral-950/95 backdrop-blur-xl shadow-2xl overflow-hidden animate-pop-in"
+                onClick={e => e.stopPropagation()}
+              >
+                <div className="px-4 pt-3.5 pb-1 border-b border-neutral-800/60">
+                  <p className="text-[10px] uppercase tracking-widest text-neutral-500 font-bold">Quick Tips</p>
+                </div>
+                <ul className="px-4 py-3 space-y-2">
+                  {[
+                    { key: 'Enter', desc: 'Add a thought' },
+                    { key: '/', desc: 'Pick a Topic (start of line)' },
+                    { key: '//', desc: 'New Topic (start of line)' },
+                    { key: '?', desc: 'Show all shortcuts' },
+                    { key: 'Shift+drag', desc: 'Multi-select' },
+                  ].map(tip => (
+                    <li key={tip.key} className="flex items-center justify-between gap-3">
+                      <span className="text-[11px] text-neutral-300">{tip.desc}</span>
+                      <kbd className="shrink-0 px-1.5 py-0.5 rounded border border-neutral-700 bg-neutral-800 text-[10px] font-mono font-semibold text-neutral-300">{tip.key}</kbd>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </>
+          )}
+        </div>
       </form>
 
       {/* bottom-right AI Topic suggestions */}
@@ -644,7 +684,7 @@ export const UIOverlay = ({
           return null;
         }).filter(Boolean);
 
-        if (pureDump || activeSuggestions.length === 0) return null;
+        if (focusMode || activeSuggestions.length === 0) return null;
 
         const cancelStaging = () => {
           setStagingSuggId(null);
