@@ -2,7 +2,7 @@ import React from 'react';
 import { useStore } from '../store/useStore';
 import { PlusIcon, MinusIcon, FitIcon, UndoIcon, RedoIcon, ClockIcon, PlayIcon, SparkIcon, PencilIcon, SquareIcon, StraightLineIcon, FreeArrowIcon, MapPinIcon } from './icons';
 
-export function Toolbar({ zoomBy, zoomToFit, undo, redo, undoStackLength, redoStackLength, runAI, nodesLength }) {
+export function Toolbar({ zoomBy, zoomToFit, undo, redo, undoStackLength, redoStackLength, runAI, nodesLength, createZone }) {
   const replayIdx = useStore(s => s.replayIdx);
   const setReplayIdx = useStore(s => s.setReplayIdx);
   const timerMenuOpen = useStore(s => s.timerMenuOpen);
@@ -66,6 +66,13 @@ export function Toolbar({ zoomBy, zoomToFit, undo, redo, undoStackLength, redoSt
         )}
       </div>
       <div className="w-6 h-px bg-neutral-600/40 my-1" />
+      <button 
+        onClick={() => createZone('New Zone')} 
+        title="Add Zone — group bubbles into a labelled frame" 
+        className="ghost-btn text-neutral-300 rounded-lg p-2"
+      >
+        <SquareIcon size={15} />
+      </button>
       <button 
         onClick={() => setIsPlacingMarker(!isPlacingMarker)} 
         title="Drop Pin Tool" 

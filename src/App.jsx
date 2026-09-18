@@ -312,7 +312,7 @@ function App() {
   // ── Phase 3: Graph mutation functions ─────────────────────────────────────
   const {
     spawnBurst, pushUndo, restoreSnapshot, undo, redo,
-    createTopic, toggleVacuumPreview, confirmVacuum, cancelVacuum,
+    createZone, createTopic, toggleVacuumPreview, confirmVacuum, cancelVacuum,
     executeManualPull, createLink, unlink, deleteNodes
   } = useCanvasMutators({
     worldRef, viewRef, undoStack, redoStack, nodeBounds, bump, persist,
@@ -395,6 +395,15 @@ function App() {
     v.y = (window.innerHeight / 2) - (node.y * v.s);
     bump();
   }, [bump]);
+
+  const deleteZone = useCallback((zoneId) => {
+    pushUndo();
+    const w = worldRef.current;
+    w.zones = (w.zones || []).filter(z => z.id !== zoneId);
+    w.updated = Date.now();
+    bump();
+    persist();
+  }, [bump, persist, pushUndo]);
 
   /* ---------- thought creation ---------- */
   const addThought = useCallback((text, opts = {}) => {
@@ -771,6 +780,25 @@ function App() {
   };
   const onBubbleDown = (node) => (e) => {
     e.stopPropagation();
+
+    // ── ZONE DRAG ──────────────────────────────────────────────────────────
+    if (node.type === 'zone') {
+      e.currentTarget.setPointerCapture(e.pointerId);
+      const p = screenToWorld(e.clientX, e.clientY);
+      const w = worldRef.current;
+      // Collect nodes whose center sits inside this zone's bounding box
+      const containedNodes = w.nodes.filter(n =>
+        n.x >= node.x && n.x <= node.x + node.width &&
+        n.y >= node.y && n.y <= node.y + node.height
+      );
+      const group = [
+        { n: node, offX: p.x - node.x, offY: p.y - node.y },
+        ...containedNodes.map(n => ({ n, offX: p.x - n.x, offY: p.y - n.y }))
+      ];
+      dragRef.current = { node, group, sx: e.clientX, sy: e.clientY, moved: false, isZone: true };
+      return;
+    }
+
     const currentState = useStore.getState();
     if (currentState.linkFrom === 'toolbar_active') {
       setLinkFrom(node.id);
@@ -950,6 +978,7 @@ function App() {
         setHoveredPullTopicId={setHoveredPullTopicId}
         setActiveLink={setActiveLink}
         createTopic={createTopic}
+        deleteZone={deleteZone}
       />
 
       {/* marquee */}
@@ -1002,7 +1031,8 @@ function App() {
         undoStackLength={undoStack.current.length} 
         redoStackLength={redoStack.current.length} 
         runAI={runAI} 
-        nodesLength={w.nodes.length} 
+        nodesLength={w.nodes.length}
+        createZone={createZone}
       />
 
       {/* edit modal */}

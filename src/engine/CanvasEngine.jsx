@@ -114,6 +114,17 @@ const renderCanvasDOM = (w, v, hidden, q, held, els) => {
     }
   }
 
+  // Imperatively update Canvas Zone positions every frame so drag feels instant
+  for (const z of (w.zones || [])) {
+    const el = worldElRef.current?.querySelector(`[data-zone-id="${z.id}"]`);
+    if (el) {
+      el.style.left = z.x + 'px';
+      el.style.top = z.y + 'px';
+      el.style.width = z.width + 'px';
+      el.style.height = z.height + 'px';
+    }
+  }
+
   // Hide DOM elements for links that no longer exist
   const activeLinkIds = new Set((links || []).map(l => l.id));
   for (const id in pathEls.current) {
@@ -358,7 +369,7 @@ export const CanvasEngine = ({
   // Interaction Callbacks
   onBubbleDown, confirmVacuum, cancelVacuum, executeManualPull, exportTopicMarkdown,
   toggleVacuumPreview, pushUndo, unlink, bump, persist, setTargetId, setModalId,
-  setHoveredPullTopicId, setActiveLink, createTopic
+  setHoveredPullTopicId, setActiveLink, createTopic, deleteZone
 }) => {
 
   const hubMembers = (hubId) => {
@@ -438,6 +449,79 @@ export const CanvasEngine = ({
     <div ref={worldElRef} className="absolute inset-0" style={{ transformOrigin: '0 0' }}>
       <AnnotationsLayer worldRef={worldRef} bump={bump} persist={persist} />
       
+      {/* ── Canvas Zones (rendered behind everything at z-index 0) ── */}
+      {(w.zones || []).map(z => (
+        <div
+          key={z.id}
+          data-zone-id={z.id}
+          className="absolute select-none"
+          style={{
+            left: z.x,
+            top: z.y,
+            width: z.width,
+            height: z.height,
+            zIndex: 0,
+            pointerEvents: 'none',
+          }}
+        >
+          {/* Zone body — subtle glass mat */}
+          <div
+            className="absolute inset-0 rounded-2xl"
+            style={{
+              background: theme === 'light'
+                ? 'rgba(0,0,0,0.04)'
+                : 'rgba(255,255,255,0.04)',
+              border: theme === 'light'
+                ? '1.5px dashed rgba(0,0,0,0.18)'
+                : '1.5px dashed rgba(255,255,255,0.18)',
+              backdropFilter: 'blur(2px)',
+              WebkitBackdropFilter: 'blur(2px)',
+              borderRadius: '16px',
+            }}
+          />
+          {/* Zone header — drag handle */}
+          <div
+            data-ui
+            onPointerDown={onBubbleDown(z)}
+            className="absolute top-0 left-0 right-0 flex items-center justify-between px-3 py-2 rounded-t-2xl cursor-grab active:cursor-grabbing"
+            style={{
+              pointerEvents: 'auto',
+              background: theme === 'light'
+                ? 'rgba(0,0,0,0.06)'
+                : 'rgba(255,255,255,0.06)',
+              borderBottom: theme === 'light'
+                ? '1px solid rgba(0,0,0,0.10)'
+                : '1px solid rgba(255,255,255,0.10)',
+              userSelect: 'none',
+              touchAction: 'none',
+            }}
+          >
+            <span
+              className="text-[12px] font-semibold tracking-wide truncate"
+              style={{ color: theme === 'light' ? 'rgba(0,0,0,0.55)' : 'rgba(255,255,255,0.55)' }}
+            >
+              ▣ {z.title}
+            </span>
+            <button
+              data-ui
+              type="button"
+              title="Delete zone"
+              onPointerDown={e => e.stopPropagation()}
+              onClick={e => { e.stopPropagation(); deleteZone(z.id); }}
+              className="flex-shrink-0 ml-2 p-1 rounded-md transition-colors"
+              style={{
+                color: theme === 'light' ? 'rgba(0,0,0,0.35)' : 'rgba(255,255,255,0.35)',
+                pointerEvents: 'auto',
+              }}
+              onMouseEnter={e => { e.currentTarget.style.color = theme === 'light' ? '#EF4444' : '#F87171'; e.currentTarget.style.background = 'rgba(239,68,68,0.12)'; }}
+              onMouseLeave={e => { e.currentTarget.style.color = theme === 'light' ? 'rgba(0,0,0,0.35)' : 'rgba(255,255,255,0.35)'; e.currentTarget.style.background = 'transparent'; }}
+            >
+              <XIcon size={13} />
+            </button>
+          </div>
+        </div>
+      ))}
+
       {/* topic gravity zones (behind everything) */}
       {w.nodes.filter(n => n.isTopic).map(n => (
         <div key={'zone' + n.id} className="topic-zone" ref={el => { if (el) zoneEls.current[n.id] = el; }}

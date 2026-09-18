@@ -29,6 +29,7 @@ export function useCanvasMutators({
     w.nodes = data.nodes.map(hydrateNode);
     w.nodes.forEach(n => { n.r = nodeRadius(n); });
     w.links = data.links;
+    w.zones = data.zones || [];
     w.updated = Date.now();
     setModalId(null); setActiveLink(null); setSelIds(new Set()); setTargetId(null);
     bump();
@@ -57,6 +58,29 @@ export function useCanvasMutators({
     }, opts.big ? 700 : 700);
     bump();
   }, []);
+
+  /* ---------- zones ---------- */
+  const createZone = useCallback((title = 'New Zone') => {
+    pushUndo();
+    const w = worldRef.current;
+    const v = viewRef.current;
+    const spawnX = (window.innerWidth / 2 - v.x) / v.s;
+    const spawnY = (window.innerHeight / 2 - v.y) / v.s;
+    w.zones = w.zones || [];
+    w.zones.push({
+      id: uid(),
+      type: 'zone',
+      title,
+      x: spawnX - 250,
+      y: spawnY - 200,
+      width: 500,
+      height: 400,
+      color: 0,
+    });
+    w.updated = Date.now();
+    bump();
+    persist();
+  }, [bump, pushUndo, persist]);
 
   /* ---------- topics (manual gravity clusters, no links) ---------- */
   /* ---------- camera panning ---------- */
@@ -429,6 +453,7 @@ Rules:
   return {
     pushUndo, restoreSnapshot, undo, redo,
     spawnBurst,
+    createZone,
     createTopic,
     toggleVacuumPreview, confirmVacuum, cancelVacuum, executeManualPull,
     createLink, unlink, deleteNodes,

@@ -36,6 +36,7 @@ export const blankWorld = (projectId = null, name = 'Untitled Canvas') => ({
   nodes: [],
   links: [],
   annotations: [],
+  zones: [],
   suggestions: [],
   rejected: [],
   updated: Date.now(),
@@ -52,7 +53,7 @@ export const pickNode = (n) => {
   };
 };
 
-export const serializeWorld = (w) => JSON.stringify({ nodes: w.nodes.map(pickNode), links: w.links, annotations: w.annotations || [], rejected: w.rejected, spawnMarker: w.spawnMarker || null });
+export const serializeWorld = (w) => JSON.stringify({ nodes: w.nodes.map(pickNode), links: w.links, annotations: w.annotations || [], zones: w.zones || [], rejected: w.rejected, spawnMarker: w.spawnMarker || null });
 
 export const hydrateNode = (n, i) => ({
   notes: '', color: 0, title: undefined, collapsed: false, isQuestion: false, pinned: false, isTopic: false, topicId: null,
