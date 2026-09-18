@@ -14,7 +14,6 @@ import { useCanvasMutators } from './hooks/useCanvasMutators';
 // 4. UI Components (Core Engine)
 import { CanvasEngine } from './engine/CanvasEngine';
 import { UIOverlay } from './components/overlays/UIOverlay';
-import { InboxOverlay } from './components/overlays/InboxOverlay';
 import { EmptyState } from './components/overlays/EmptyState';
 
 // 5. UI Components (Sidebars & Modals)
@@ -24,7 +23,6 @@ import { SettingsModal } from './components/SettingsModal';
 import { EditThoughtModal } from './components/EditThoughtModal';
 import { Toolbar } from './components/Toolbar';
 import { TimerMenu } from './components/TimerMenu';
-import { ExportSidebar } from './components/ExportSidebar';
 
 // 6. Utils
 import { LS_CURRENT, LS_LAST_ACTIVE, LS_HISTORY } from './utils/constants';
@@ -63,12 +61,8 @@ function App() {
   const setSettingsOpen = useStore(s => s.setSettingsOpen);
   const menuOpen = useStore(s => s.menuOpen);
   const setMenuOpen = useStore(s => s.setMenuOpen);
-  const exportOpen = useStore(s => s.exportOpen);
-  const setExportOpen = useStore(s => s.setExportOpen);
-  const exportSidebarOpen = useStore(s => s.exportSidebarOpen);
-  const setExportSidebarOpen = useStore(s => s.setExportSidebarOpen);
-  const setDraftOutline = useStore(s => s.setDraftOutline);
   const aiBusy = useStore(s => s.aiBusy);
+
   const setAiBusy = useStore(s => s.setAiBusy);
   const aiNote = useStore(s => s.aiNote);
   const setAiNote = useStore(s => s.setAiNote);
@@ -114,10 +108,18 @@ function App() {
   const setFlashActive = useStore(s => s.setFlashActive);
   const unexportedArchiveAlert = useStore(s => s.unexportedArchiveAlert);
   const setUnexportedArchiveAlert = useStore(s => s.setUnexportedArchiveAlert);
+  const isPlacingMarker = useStore(s => s.isPlacingMarker);
+  const hoveredSuggId = useStore(s => s.hoveredSuggId);
+  const setHoveredSuggId = useStore(s => s.setHoveredSuggId);
+  const stagingSuggId = useStore(s => s.stagingSuggId);
+  const setStagingSuggId = useStore(s => s.setStagingSuggId);
+  const stagingNodeIds = useStore(s => s.stagingNodeIds);
+  const setStagingNodeIds = useStore(s => s.setStagingNodeIds);
+  const aiTopicSuggestions = useStore(s => s.aiTopicSuggestions);
+
 
   // 2. Local State & Initializers
   const [sessionsRev, setSessionsRev] = useState(0);
-  const [hoveredSuggThoughtIds, setHoveredSuggThoughtIds] = useState(null);
 
   useEffect(() => { useStore.getState().vacuumTopicId = vacuumTopicId; }, [vacuumTopicId]);
   useEffect(() => { useStore.getState().vacuumSelectedIds = vacuumSelectedIds; }, [vacuumSelectedIds]);
@@ -174,6 +176,7 @@ function App() {
     w.nodes.forEach(n => {
       if (selectedIds.has(n.id) && !n.isTopic && !n.isHub) {
         n.topicId = targetTopicId || null;
+        n.inInbox = false; // Remove from inbox if it was there
         if (targetColor !== undefined) n.color = targetColor;
         
         if (targetTopic) {
@@ -245,7 +248,10 @@ function App() {
       const s = store[cur];
       worldRef.current = { ...blankWorld(), ...s };
       worldRef.current.nodes = worldRef.current.nodes.map(hydrateNode);
-      worldRef.current.nodes.forEach(n => { n.r = nodeRadius(n); });
+      worldRef.current.nodes.forEach(n => { 
+        n.inInbox = false; // migrate legacy inbox nodes to canvas
+        n.r = nodeRadius(n); 
+      });
     } else {
       worldRef.current = blankWorld();
       worldRef.current.name = `Today's Stream`;
@@ -330,46 +336,12 @@ function App() {
 
 
   const exportTopicMarkdown = useCallback((topicNode) => {
-    const w = worldRef.current;
-    const children = w.nodes.filter(n => n.topicId === topicNode.id && !n.isTopic && !n.isHub && n.text?.trim());
-    setDraftOutline([{
-      id: topicNode.id,
-      title: topicNode.title || topicNode.text || 'Untitled Topic',
-      thoughts: children.map(n => n.text.trim()),
-      isUnsorted: false,
-    }]);
-    setExportSidebarOpen(true);
-  }, [setDraftOutline, setExportSidebarOpen]);
+    useStore.getState().setSplitViewOpen(true);
+  }, []);
 
   const handleExportMarkdownOutline = useCallback(() => {
-    const w = worldRef.current;
-    const topics = w.nodes.filter(n => n.isTopic);
-    const outline = [];
-
-    // Group thoughts under their topic
-    for (const topic of topics) {
-      const children = w.nodes.filter(n => !n.isTopic && !n.isHub && n.topicId === topic.id && n.text?.trim());
-      outline.push({
-        title: topic.title || topic.text || 'Untitled Topic',
-        thoughts: children.map(n => n.text.trim()),
-        isUnsorted: false,
-      });
-    }
-
-    // Collect unassigned thoughts
-    const unsorted = w.nodes.filter(n => !n.isTopic && !n.isHub && !n.topicId && n.text?.trim());
-    if (unsorted.length > 0) {
-      outline.push({
-        title: 'Unsorted',
-        thoughts: unsorted.map(n => n.text.trim()),
-        isUnsorted: true,
-      });
-    }
-
-    setDraftOutline(outline);
-    setExportSidebarOpen(true);
-    useStore.getState().setSplitViewOpen(false);
-  }, [setDraftOutline, setExportSidebarOpen]);
+    useStore.getState().setSplitViewOpen(true);
+  }, []);
 
   const moveNodeAndChildrenToTopic = useCallback((nodeId, targetTopicId) => {
     const w = worldRef.current;
@@ -430,7 +402,18 @@ function App() {
     if (!text) return null;
     const w = worldRef.current;
     if (!opts.skipUndo) pushUndo();
-    const baseSpawn = opts.at || screenToWorld(window.innerWidth / 2, window.innerHeight - 130);
+    const marker = (!opts.at && !('topicId' in opts) && !useStore.getState().activeTopic) 
+      ? worldRef.current.spawnMarker 
+      : null;
+
+    const baseSpawn = opts.at 
+      ? opts.at 
+      : marker 
+        ? { 
+            x: marker.x + (Math.random() * 60 - 30), 
+            y: marker.y + 20 + (Math.random() * 40 - 20) 
+          }
+        : screenToWorld(window.innerWidth / 2, window.innerHeight - 130);
     let topicId = ('topicId' in opts) ? opts.topicId : useStore.getState().activeTopic;
 
     let burstIndex = 0;
@@ -481,7 +464,7 @@ function App() {
       isHub: false, created: Date.now(), collapsed: false,
       isQuestion: /\?\s*$/.test(text),
       topicId,
-      inInbox: !topicId,
+      inInbox: false,
       released: true,
       metadata: opts.metadata || null,
       targetStreamId: opts.targetStreamId || null,
@@ -519,6 +502,7 @@ function App() {
     spawnBurst(n.x, n.y);
     w.updated = Date.now();
     bump();
+    persist();
     clearTimeout(addThought._t);
     addThought._t = setTimeout(() => {
       if (useStore.getState().autoAIEnabled) runAI();
@@ -544,11 +528,11 @@ function App() {
     screenToWorld, byId,
     // Zustand setters
     setMarquee, setLinkFrom, setSelIds,
-    setHoveredSuggThoughtIds,
+    setStagingSuggId, setStagingNodeIds,
     setActiveLink, setModalId, setTargetId, setActiveTopic,
     setFocusedOutlineId, setActiveSorterTopicId, setVacuumTopicId,
     setVacuumSelectedIds, setReplayIdx, setDrawerOpen, setSettingsOpen,
-    setExportOpen, setMenuOpen, setTopicMenuOpen, setTimerMenuOpen,
+    setMenuOpen, setTopicMenuOpen, setTimerMenuOpen,
   });
 
   useEffect(() => {
@@ -710,10 +694,9 @@ function App() {
     setActiveLink(null);
     setModalId(null);
     setSettingsOpen(false);
-    setExportOpen(false);
     setTopicMenuOpen(false);
     setTimerMenuOpen(false);
-    setExportSidebarOpen(false);
+    useStore.getState().setSplitViewOpen(false);
     useStore.setState({
       selIds: new Set(),
       targetId: null,
@@ -726,8 +709,8 @@ function App() {
       activeLink: null,
       modalId: null,
       settingsOpen: false,
-      exportOpen: false,
     });
+
   }, []);
 
   // ── keydown → moved to useGlobalInteractions (Phase 4)
@@ -745,13 +728,45 @@ function App() {
     // NEW: Instantly close the Streams sidebar when clicking the canvas
     setDrawerOpen(false); 
 
-    if (e.target.closest('[data-bubble]') || e.target.closest('[data-ui]')) return;
+    const { isPlacingMarker, setIsPlacingMarker } = useStore.getState();
+    if (isPlacingMarker) {
+      const p = screenToWorld(e.clientX, e.clientY);
+      worldRef.current.spawnMarker = { x: Math.round(p.x), y: Math.round(p.y) };
+      setIsPlacingMarker(false);
+      pushUndo();
+      bump();
+      persist();
+      return;
+    }
+
+    if (e.target.closest('[data-bubble]')) return;
+
+    const { activeDrawTool } = useStore.getState();
+    if (activeDrawTool) {
+      const { x, y } = screenToWorld(e.clientX, e.clientY);
+      useStore.getState().setDrawingPreview({
+        tool: activeDrawTool,
+        startX: x,
+        startY: y,
+        endX: x,
+        endY: y
+      });
+      return;
+    }
+
     if (e.shiftKey) {
       marqueeStartRef.current = { sx: e.clientX, sy: e.clientY };
       return;
     }
+    // Cancel staging mode when clicking the background
+    const { stagingSuggId: currentStagingSuggId } = useStore.getState();
+    if (currentStagingSuggId) {
+      useStore.getState().setStagingSuggId(null);
+      useStore.getState().setStagingNodeIds(new Set());
+      return;
+    }
     panRef.current = { sx: e.clientX, sy: e.clientY, vx: viewRef.current.x, vy: viewRef.current.y };
-    setActiveLink(null); setLinkFrom(null); setSelIds(new Set()); setExportOpen(false); setTargetId(null); setTopicMenuOpen(false);
+    setActiveLink(null); setLinkFrom(null); setSelIds(new Set()); setTargetId(null); setTopicMenuOpen(false);
     setVacuumTopicId(null); setVacuumSelectedIds(new Set());
   };
   const onBubbleDown = (node) => (e) => {
@@ -773,6 +788,16 @@ function App() {
     }
     if (e.metaKey || e.ctrlKey || e.shiftKey) {
       setSelIds(prev => {
+        const next = new Set(prev);
+        if (next.has(node.id)) next.delete(node.id);
+        else next.add(node.id);
+        return next;
+      });
+      return;
+    }
+    // STAGING MODE: intercept clicks to add/remove bubbles from the staged topic
+    if (useStore.getState().stagingSuggId && !node.isTopic && !node.isHub) {
+      useStore.getState().setStagingNodeIds(prev => {
         const next = new Set(prev);
         if (next.has(node.id)) next.delete(node.id);
         else next.add(node.id);
@@ -841,7 +866,7 @@ function App() {
 
   return (
     <>
-      <div ref={containerRef} className={`fixed top-0 left-0 bottom-0 select-none ${activeSorterTopicId ? 'cursor-crosshair' : ''}`} 
+      <div ref={containerRef} className={`fixed top-0 left-0 bottom-0 select-none ${activeSorterTopicId ? 'cursor-crosshair' : ''} ${isPlacingMarker ? 'is-placing-marker' : ''}`} 
            style={{ right: splitViewOpen ? '380px' : '0', transition: 'right 0.3s cubic-bezier(0.16, 1, 0.3, 1)' }} 
            onPointerDown={onBackgroundDown}
            onDragOver={(e) => e.preventDefault()}
@@ -880,7 +905,10 @@ function App() {
         theme={theme}
         selIds={selIds}
         activeLink={activeLink}
-        hoveredSuggThoughtIds={hoveredSuggThoughtIds}
+        hoveredSuggId={hoveredSuggId}
+        stagingSuggId={stagingSuggId}
+        stagingNodeIds={stagingNodeIds}
+        aiTopicSuggestions={aiTopicSuggestions}
         vacuumTopicId={vacuumTopicId}
         vacuumSelectedIds={vacuumSelectedIds}
         activeTopic={activeTopic}
@@ -959,14 +987,11 @@ function App() {
         handleExportMarkdownOutline={handleExportMarkdownOutline}
         getUniqueCanvasName={getUniqueCanvasName}
         speechSupported={speechSupported}
-        setHoveredSuggThoughtIds={setHoveredSuggThoughtIds}
       />
 
       {/* Timer Menu */}
       <TimerMenu startTimer={startTimer} />
 
-      {/* Export Staging Sidebar */}
-      <ExportSidebar />
 
       {/* toolbar */}
       <Toolbar 
@@ -1014,8 +1039,6 @@ function App() {
         moveCanvasToProject={moveCanvasToProject}
       />
 
-      {/* Inbox Canvas & Horizon Line */}
-      <InboxOverlay worldRef={worldRef} />
     </div>
 
     <LiveOutline 

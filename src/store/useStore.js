@@ -25,6 +25,15 @@ export const useStore = create((set) => ({
   aiTopicSuggestions: [],
   setAiTopicSuggestions: (val) => set({ aiTopicSuggestions: val }),
 
+  hoveredSuggId: null,
+  setHoveredSuggId: (val) => set({ hoveredSuggId: val }),
+
+  stagingSuggId: null,
+  setStagingSuggId: (val) => set({ stagingSuggId: val }),
+
+  stagingNodeIds: new Set(),
+  setStagingNodeIds: (val) => set(typeof val === 'function' ? (state) => ({ stagingNodeIds: val(state.stagingNodeIds) }) : { stagingNodeIds: val }),
+
   activeLink: null,
   setActiveLink: (val) => set({ activeLink: val }),
 
@@ -54,9 +63,6 @@ export const useStore = create((set) => ({
 
   menuOpen: false,
   setMenuOpen: (val) => set({ menuOpen: val }),
-
-  exportOpen: false,
-  setExportOpen: (val) => set({ exportOpen: val }),
 
   aiBusy: false,
   setAiBusy: (val) => set({ aiBusy: val }),
@@ -133,11 +139,6 @@ export const useStore = create((set) => ({
   unexportedArchiveAlert: null,
   setUnexportedArchiveAlert: (val) => set({ unexportedArchiveAlert: val }),
 
-  exportSidebarOpen: false,
-  setExportSidebarOpen: (val) => set({ exportSidebarOpen: val }),
-
-  draftOutline: [],
-  setDraftOutline: (val) => set({ draftOutline: val }),
 
   projects: loadProjects(),
   setProjects: (val) => set({ projects: val }),
@@ -147,4 +148,16 @@ export const useStore = create((set) => ({
     localStorage.setItem('ts_auto_ai', val);
     set({ autoAIEnabled: val });
   },
+
+  activeDrawTool: null,
+  setActiveDrawTool: (val) => set({ activeDrawTool: val }),
+
+  drawMenuOpen: false,
+  setDrawMenuOpen: (val) => set(typeof val === 'function' ? (state) => ({ drawMenuOpen: val(state.drawMenuOpen) }) : { drawMenuOpen: val }),
+
+  drawingPreview: null,
+  setDrawingPreview: (val) => set({ drawingPreview: val }),
+
+  isPlacingMarker: false,
+  setIsPlacingMarker: (val) => set((state) => ({ isPlacingMarker: typeof val === 'function' ? val(state.isPlacingMarker) : val })),
 }));

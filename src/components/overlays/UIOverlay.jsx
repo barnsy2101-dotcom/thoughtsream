@@ -30,7 +30,6 @@ export const UIOverlay = ({
   handleExportMarkdownOutline,
   getUniqueCanvasName,
   speechSupported,
-  setHoveredSuggThoughtIds
 }) => {
   const theme = useStore(s => s.theme);
   const input = useStore(s => s.input);
@@ -59,6 +58,12 @@ export const UIOverlay = ({
   const listening = useStore(s => s.listening);
   const aiTopicSuggestions = useStore(s => s.aiTopicSuggestions);
   const setAiTopicSuggestions = useStore(s => s.setAiTopicSuggestions);
+  const hoveredSuggId = useStore(s => s.hoveredSuggId);
+  const setHoveredSuggId = useStore(s => s.setHoveredSuggId);
+  const stagingSuggId = useStore(s => s.stagingSuggId);
+  const setStagingSuggId = useStore(s => s.setStagingSuggId);
+  const stagingNodeIds = useStore(s => s.stagingNodeIds);
+  const setStagingNodeIds = useStore(s => s.setStagingNodeIds);
   const topicMenuOpen = useStore(s => s.topicMenuOpen);
   const setTopicMenuOpen = useStore(s => s.setTopicMenuOpen);
 
@@ -66,6 +71,12 @@ export const UIOverlay = ({
   const [slashIsDouble, setSlashIsDouble] = useState(false);
   const [slashIndex, setSlashIndex] = useState(0);
   const [moveTopicMenuOpen, setMoveTopicMenuOpen] = useState(false);
+
+  React.useEffect(() => {
+    if (selIds.size === 0) {
+      setMoveTopicMenuOpen(false);
+    }
+  }, [selIds.size]);
 
   const w = worldRef.current;
   const byId = (id) => w.nodes.find(n => n.id === id);
@@ -116,6 +127,12 @@ export const UIOverlay = ({
     }
 
     if (activeTopic) {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        useStore.getState().setActiveTopic(null);
+        return;
+      }
+      
       const isArrow = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key);
       
       // Trigger if input is empty OR if Option/Alt is held down
@@ -216,27 +233,7 @@ export const UIOverlay = ({
           <span className="text-neutral-300 text-sm font-medium mr-2">{selIds.size} selected</span>
           <button onClick={() => deleteNodes(selIds)} className="text-xs bg-red-500/20 hover:bg-red-500/30 text-red-300 px-3 py-1.5 rounded-full font-medium transition-colors border border-red-500/20">Delete</button>
           
-          <div className="relative">
-             <select 
-                onChange={(e) => {
-                  const tId = e.target.value;
-                  if (tId) {
-                    moveCanvasToProject(w.id, tId);
-                  }
-                }}
-                value=""
-                className="appearance-none text-xs bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 px-3 py-1.5 rounded-full font-medium transition-colors border border-blue-500/20 outline-none cursor-pointer pr-6"
-             >
-                <option value="" disabled>Move to Project...</option>
-                {(() => {
-                   const history = JSON.parse(localStorage.getItem(LS_HISTORY) || '[]');
-                   const store = loadStore();
-                   const projects = Object.values(store).filter(s => s.id !== w.id && !history.find(h => h.id === s.id));
-                   return projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>);
-                })()}
-             </select>
-             <span className="absolute right-2 top-1/2 -translate-y-1/2 text-blue-300 pointer-events-none text-[10px]">▼</span>
-          </div>
+
 
           <div className="relative">
             <button
@@ -278,6 +275,29 @@ export const UIOverlay = ({
                   ) : (
                     <div className="px-3 py-2 text-[11px] text-neutral-500 italic">No topics on canvas</div>
                   )}
+
+                  {/* NEW: Merged Project Select */}
+                  <div className="w-full h-px bg-neutral-800 my-1.5" />
+                  <div className="px-1.5 pb-1.5 pt-0.5">
+                    <select
+                      onChange={(e) => {
+                        const targetId = e.target.value;
+                        if (targetId) {
+                          moveCanvasToProject(w.id, targetId);
+                        }
+                      }}
+                      value=""
+                      className="w-full appearance-none text-xs bg-blue-500/10 hover:bg-blue-500/20 text-blue-300 px-3 py-2 rounded-lg font-medium transition-colors border border-blue-500/20 outline-none cursor-pointer text-center"
+                    >
+                      <option value="" disabled>Move to Project / Canvas...</option>
+                      {(() => {
+                        const history = JSON.parse(localStorage.getItem(LS_HISTORY) || '[]');
+                        const store = loadStore();
+                        const projects = Object.values(store).filter(s => s.id !== w.id && !history.find(h => h.id === s.id));
+                        return projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>);
+                      })()}
+                    </select>
+                  </div>
                 </div>
               );
             })()}
@@ -414,7 +434,7 @@ export const UIOverlay = ({
         </button>
 
         {/* Settings Gear Dropdown Menu */}
-        <HeaderMenu exportMarkdown={handleExportMarkdownOutline} exportPNG={() => {}} />
+        <HeaderMenu />
       </header>
 
       {/* Left Edge Streams Tab */}
@@ -610,7 +630,7 @@ export const UIOverlay = ({
           if (members.length === 0) return null;
           
           const exists = w.nodes.some(n => (n.isHub || n.isTopic) && n.title && n.title.toLowerCase() === sugg.topicName.toLowerCase());
-          const minRequired = exists ? 1 : 5;
+          const minRequired = exists ? 1 : 3;
           
           if (members.length >= minRequired) {
             const count = members.length;
@@ -625,38 +645,100 @@ export const UIOverlay = ({
         }).filter(Boolean);
 
         if (pureDump || activeSuggestions.length === 0) return null;
+
+        const cancelStaging = () => {
+          setStagingSuggId(null);
+          setStagingNodeIds(new Set());
+        };
+
+        const snapStaging = (sugg) => {
+          const t = createTopic(sugg.topicName);
+          if (t) {
+            // Save state so the user can easily undo this snap operation
+            pushUndo();
+            
+            // Move all staged nodes into the new topic
+            const w = worldRef.current;
+            const v = { x: 0, y: 0, s: 1 }; // not needed but kept for signature compat
+            stagingNodeIds.forEach(nodeId => {
+              const node = w.nodes.find(n => n.id === nodeId);
+              if (node && !node.isTopic && !node.isHub) {
+                node.topicId = t.id;
+                node.sleeping = false;
+                node.userMoved = false;
+                node.pinned = false;
+                const angle = Math.random() * Math.PI * 2;
+                const R = t.r + node.r + 30;
+                node.x = t.x + Math.round(Math.cos(angle) * R);
+                node.y = t.y + Math.round(Math.sin(angle) * R);
+                node.vx = 0;
+                node.vy = 0;
+              }
+            });
+            w.updated = Date.now();
+            bump();
+            persist();
+            setAiTopicSuggestions(aiTopicSuggestions.filter(s => s.id !== sugg.id));
+            cancelStaging();
+          }
+        };
+
         return (
           <div data-ui className="absolute bottom-6 right-6 z-50 flex flex-col items-end gap-2">
-            {activeSuggestions.map((sugg) => (
-              <div key={sugg.id}
-                   className="glass flex items-center gap-3 px-4 py-2 rounded-full cursor-pointer border border-neutral-700/50 hover:bg-white/5 hover:scale-[1.02] hover:border-amber-400/40 transition-all duration-200 shadow-lg animate-pop-in"
-                   onMouseEnter={() => setHoveredSuggThoughtIds(new Set(sugg.thoughtIds))}
-                   onMouseLeave={() => setHoveredSuggThoughtIds(null)}
-                   onClick={() => {
-                     setHoveredSuggThoughtIds(null);
-                     const t = createTopic(sugg.topicName);
-                     if (t) {
-                       toggleVacuumPreview(t);
-                       setAiTopicSuggestions(
-                         aiTopicSuggestions.filter(s => s.id !== sugg.id)
-                       );
-                     }
-                   }}>
-                <SparkIcon size={14} className="text-amber-400 shrink-0" />
-                <span className="text-[13px] font-semibold text-neutral-100 whitespace-nowrap">{sugg.text}</span>
-                <button
-                  className="p-1 ml-1 rounded-full text-neutral-500 hover:text-neutral-200 hover:bg-neutral-700/50 transition-colors shrink-0"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setHoveredSuggThoughtIds(null);
-                    setAiTopicSuggestions(
-                      aiTopicSuggestions.filter(s => s.id !== sugg.id)
-                    );
-                  }}>
-                  <XIcon size={11} />
-                </button>
-              </div>
-            ))}
+            {activeSuggestions.map((sugg) => {
+              const isStaging = stagingSuggId === sugg.id;
+              const isHovered = hoveredSuggId === sugg.id;
+              return (
+                <div key={sugg.id}
+                     className={`glass flex items-center gap-3 px-4 py-2 rounded-full cursor-pointer border transition-all duration-200 shadow-lg animate-pop-in ${
+                       isStaging
+                         ? 'border-amber-400/60 bg-amber-500/10 shadow-[0_0_16px_rgba(251,191,36,0.2)]'
+                         : 'border-neutral-700/50 hover:bg-white/5 hover:scale-[1.02] hover:border-amber-400/40'
+                     }`}
+                     onMouseEnter={() => { if (!stagingSuggId) setHoveredSuggId(sugg.id); }}
+                     onMouseLeave={() => { if (!stagingSuggId) setHoveredSuggId(null); }}
+                     onClick={() => {
+                       if (isStaging) return; // ignore if already staging
+                       setHoveredSuggId(null);
+                       setStagingSuggId(sugg.id);
+                       setStagingNodeIds(new Set(sugg.thoughtIds || []));
+                     }}>
+                  <SparkIcon size={14} className={`shrink-0 ${isStaging ? 'text-amber-400' : 'text-amber-400'}`} />
+                  <span className="text-[13px] font-semibold text-neutral-100 whitespace-nowrap">
+                    {isStaging
+                      ? `${stagingNodeIds.size} thought${stagingNodeIds.size === 1 ? '' : 's'} staged — click bubbles to add/remove`
+                      : sugg.text}
+                  </span>
+                  {isStaging ? (
+                    <div className="flex items-center gap-1.5 ml-1" onClick={e => e.stopPropagation()}>
+                      <button
+                        id="staging-snap-btn"
+                        className="px-3 py-1 rounded-full text-xs font-bold bg-amber-500 hover:bg-amber-400 text-neutral-900 transition-colors shadow-sm shrink-0"
+                        onClick={(e) => { e.stopPropagation(); snapStaging(sugg); }}
+                        title="Create topic with selected bubbles">
+                        Snap ✦
+                      </button>
+                      <button
+                        className="p-1 rounded-full text-neutral-500 hover:text-neutral-200 hover:bg-neutral-700/50 transition-colors shrink-0"
+                        onClick={(e) => { e.stopPropagation(); cancelStaging(); setAiTopicSuggestions(aiTopicSuggestions.filter(s => s.id !== sugg.id)); }}
+                        title="Dismiss suggestion">
+                        <XIcon size={11} />
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      className="p-1 ml-1 rounded-full text-neutral-500 hover:text-neutral-200 hover:bg-neutral-700/50 transition-colors shrink-0"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setHoveredSuggId(null);
+                        setAiTopicSuggestions(aiTopicSuggestions.filter(s => s.id !== sugg.id));
+                      }}>
+                      <XIcon size={11} />
+                    </button>
+                  )}
+                </div>
+              );
+            })}
           </div>
         );
       })()}

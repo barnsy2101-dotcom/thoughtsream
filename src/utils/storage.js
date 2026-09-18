@@ -35,19 +35,28 @@ export const blankWorld = (projectId = null, name = 'Untitled Canvas') => ({
   name,
   nodes: [],
   links: [],
+  annotations: [],
   suggestions: [],
   rejected: [],
   updated: Date.now(),
+  spawnMarker: null,
 });
 
-export const pickNode = ({ id, text, notes, color, x, y, isHub, title, created, collapsed, isQuestion, pinned, isTopic, topicId, released, offsetX, offsetY }) =>
-  ({ id, text, notes, color, x: Math.round(x), y: Math.round(y), isHub, title, created, collapsed, isQuestion, pinned, isTopic, topicId, released, offsetX, offsetY });
+export const pickNode = (n) => {
+  if (!n) return n;
+  const { vx, vy, r, floating, ...rest } = n;
+  return {
+    ...rest,
+    x: Math.round(n.x || 0),
+    y: Math.round(n.y || 0),
+  };
+};
 
-export const serializeWorld = (w) => JSON.stringify({ nodes: w.nodes.map(pickNode), links: w.links, rejected: w.rejected });
+export const serializeWorld = (w) => JSON.stringify({ nodes: w.nodes.map(pickNode), links: w.links, annotations: w.annotations || [], rejected: w.rejected, spawnMarker: w.spawnMarker || null });
 
 export const hydrateNode = (n, i) => ({
   notes: '', color: 0, title: undefined, collapsed: false, isQuestion: false, pinned: false, isTopic: false, topicId: null,
-  released: true, offsetX: undefined, offsetY: undefined,
+  inInbox: false, released: true, offsetX: undefined, offsetY: undefined,
   ...n,
   created: n.created || i, vx: 0, vy: 0, floating: false, r: 0,
 });

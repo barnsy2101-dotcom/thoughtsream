@@ -6,8 +6,93 @@ import { applyCollisions, applyLinkForces, applyTopicGravity, integrateVelocitie
 
 import { 
   SparkIcon, CheckIcon, XIcon, FoldIcon, UnfoldIcon, 
-  CopyIcon, MagnetIcon, PinIcon, MsgIcon, MinusIcon
+  CopyIcon, PinIcon, MsgIcon, MinusIcon
 } from '../components/icons';
+
+const AnnotationsLayer = ({ worldRef, bump, persist }) => {
+  const preview = useStore(s => s.drawingPreview);
+  const annotations = worldRef.current.annotations || [];
+  
+  const handleDelete = (id) => {
+    worldRef.current.annotations = worldRef.current.annotations.filter(a => a.id !== id);
+    worldRef.current.updated = Date.now();
+    bump();
+    persist();
+  };
+
+  const renderShape = (ann, isPreview = false) => {
+    const { startX, startY, endX, endY, tool, id } = ann;
+    
+    if (tool === 'rect') {
+      const minX = Math.min(startX, endX);
+      const minY = Math.min(startY, endY);
+      const w = Math.abs(endX - startX);
+      const h = Math.abs(endY - startY);
+      
+      return (
+        <div key={id || 'preview'} className="absolute"
+          style={{
+            left: minX, top: minY, width: w, height: h,
+            border: '2.5px solid rgba(150,150,150,0.4)',
+            borderRadius: '12px',
+            backgroundColor: 'rgba(150,150,150,0.03)',
+            zIndex: 2,
+            pointerEvents: 'none',
+          }}>
+          {!isPreview && (
+            <button
+              onClick={(e) => { e.stopPropagation(); handleDelete(id); }}
+              className="absolute -top-3 -right-3 opacity-30 hover:opacity-100 bg-red-500/90 text-white rounded-full p-1.5 pointer-events-auto transition-opacity shadow-sm"
+              title="Delete annotation"
+            >
+              <XIcon size={12} />
+            </button>
+          )}
+        </div>
+      );
+    }
+    
+    const isArrow = tool === 'arrow';
+    const midX = (startX + endX) / 2;
+    const midY = (startY + endY) / 2;
+    
+    return (
+      <React.Fragment key={id || 'preview'}>
+        <svg className="absolute" style={{ overflow: 'visible', width: 1, height: 1, zIndex: 2, pointerEvents: 'none' }}>
+          <path d={`M ${startX} ${startY} L ${endX} ${endY}`}
+            fill="none" stroke="rgba(150,150,150,0.5)" strokeWidth="3.5" strokeLinecap="round"
+            markerEnd={isArrow ? "url(#draw-arrow)" : undefined}
+          />
+        </svg>
+        {!isPreview && (
+          <div className="absolute" style={{ left: midX, top: midY, transform: 'translate(-50%, -50%)', zIndex: 3, pointerEvents: 'none' }}>
+            <button
+              onClick={(e) => { e.stopPropagation(); handleDelete(id); }}
+              className="opacity-30 hover:opacity-100 bg-red-500/90 text-white rounded-full p-1.5 pointer-events-auto transition-opacity shadow-sm"
+              title="Delete annotation"
+            >
+              <XIcon size={12} />
+            </button>
+          </div>
+        )}
+      </React.Fragment>
+    );
+  };
+
+  return (
+    <>
+      <svg className="absolute" style={{ overflow: 'visible', width: 0, height: 0 }}>
+        <defs>
+          <marker id="draw-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M 0 1 L 10 5 L 0 9 z" fill="rgba(150,150,150,0.5)" />
+          </marker>
+        </defs>
+      </svg>
+      {annotations.map(a => renderShape(a))}
+      {preview && renderShape(preview, true)}
+    </>
+  );
+};
 
 // ── Render function ──
 const renderCanvasDOM = (w, v, hidden, q, held, els) => {
@@ -41,6 +126,19 @@ const renderCanvasDOM = (w, v, hidden, q, held, els) => {
   }
 
   const sel = useStore.getState().selIds;
+  const { vacuumTopicId, vacuumSelectedIds } = useStore.getState();
+
+  // Fetch fresh live state on every frame to avoid stale closure bugs
+  const liveHoveredSuggId = useStore.getState().hoveredSuggId;
+  const liveStagingSuggId = useStore.getState().stagingSuggId;
+  const liveStagingNodeIds = useStore.getState().stagingNodeIds || new Set();
+  const liveAiSuggestions = useStore.getState().aiTopicSuggestions || [];
+
+  // Pre-compute the active suggestion once (hovered takes priority over staged)
+  const activeSugg = liveHoveredSuggId
+    ? liveAiSuggestions.find(s => s.id === liveHoveredSuggId)
+    : (liveStagingSuggId ? liveAiSuggestions.find(s => s.id === liveStagingSuggId) : null);
+
   for (const n of nodes) {
     const el = nodeEls.current[n.id];
     if (!el) continue;
@@ -53,8 +151,57 @@ const renderCanvasDOM = (w, v, hidden, q, held, els) => {
     if (held(n)) z = 1000;
     el.style.zIndex = z;
     const match = !q || (n.text + ' ' + (n.notes || '') + ' ' + (n.title || '')).toLowerCase().includes(q);
-    el.style.opacity = match ? '1' : '0.14';
+
+    // -- Staging / hover opacity --
+    const isVacuumHighlighted = vacuumTopicId && vacuumSelectedIds && vacuumSelectedIds.has(n.id);
+    const isVacuumTargetTopic = vacuumTopicId === n.id;
+
+    const isStagingNode = liveStagingNodeIds.has(n.id);
+    // .title is the property name on suggestion objects; .topicName is a fallback for older data
+    const isSuggTargetTopic = activeSugg && (n.isTopic || n.isHub) && n.title &&
+      n.title.toLowerCase() === (activeSugg.title ?? activeSugg.topicName ?? '').toLowerCase();
+    
+    // Only highlight based on the AI suggestion array during HOVER preview.
+    // During STAGING, we strictly follow liveStagingNodeIds so the user can deselect them.
+    const isHoverNode = liveHoveredSuggId && activeSugg && activeSugg.thoughtIds?.includes(n.id);
+
+    let opacity;
+    if (!match) {
+      opacity = '0.14';
+    } else if (vacuumTopicId) {
+      opacity = (isVacuumTargetTopic || isVacuumHighlighted) ? '1'
+        : (n.topicId && n.topicId !== vacuumTopicId ? '0.35' : '0.6');
+    } else if (liveHoveredSuggId) {
+      // Dim the canvas only during hover preview
+      opacity = (isHoverNode || isSuggTargetTopic) ? '1' : '0.25';
+    } else {
+      // In staging mode, restore full opacity so the user can browse and click other bubbles
+      opacity = '1';
+    }
+    el.style.opacity = opacity;
+
+    // -- Amber dashed ring on staged / hovered nodes (applied to bubble-core child) --
+    const coreEl = el.querySelector('.bubble-core');
+    if (coreEl) {
+      if (isStagingNode || isHoverNode) {
+        coreEl.style.outline = '2px dashed #FCD34D';
+        coreEl.style.outlineOffset = '3px';
+        coreEl.dataset.stagingOutline = 'true';
+      } else if (isSuggTargetTopic) {
+        coreEl.style.outline = '2px solid #FCD34D';
+        coreEl.style.outlineOffset = '3px';
+        coreEl.dataset.stagingOutline = 'true';
+      } else {
+        // Clear any staging outline (leave React-set outlines for sel/target/focus)
+        if (coreEl.dataset.stagingOutline === 'true') {
+          coreEl.style.outline = '';
+          coreEl.style.outlineOffset = '';
+          coreEl.dataset.stagingOutline = 'false';
+        }
+      }
+    }
   }
+
   
   for (const n of nodes) {
     if (!n.isTopic) continue;
@@ -204,7 +351,7 @@ const renderCanvasDOM = (w, v, hidden, q, held, els) => {
 
 export const CanvasEngine = ({
   worldRef, viewRef,
-  theme, selIds, activeLink, hoveredSuggThoughtIds, vacuumTopicId, vacuumSelectedIds, activeTopic, targetId, linkFrom, activeSorterTopicId, focusedOutlineId, replayIdx,
+  theme, selIds, activeLink, hoveredSuggId, stagingSuggId, stagingNodeIds, aiTopicSuggestions, vacuumTopicId, vacuumSelectedIds, activeTopic, targetId, linkFrom, activeSorterTopicId, focusedOutlineId, replayIdx,
   worldElRef, bgRef, nodeEls, zoneEls, pathEls, hitEls, labelEls, badgeEls,
   linkCardRef, previewRef, threadLineRef, nodeBounds, observedNodes, resizeObserver, mouseRef,
   pullTetherGroupRef, sourceTetherGroupRef, dragRef,
@@ -289,6 +436,8 @@ export const CanvasEngine = ({
 
   return (
     <div ref={worldElRef} className="absolute inset-0" style={{ transformOrigin: '0 0' }}>
+      <AnnotationsLayer worldRef={worldRef} bump={bump} persist={persist} />
+      
       {/* topic gravity zones (behind everything) */}
       {w.nodes.filter(n => n.isTopic).map(n => (
         <div key={'zone' + n.id} className="topic-zone" ref={el => { if (el) zoneEls.current[n.id] = el; }}
@@ -405,12 +554,24 @@ export const CanvasEngine = ({
         const isSource = linkFrom === n.id;
         const isSel = selIds.has(n.id);
         const memberCount = n.isHub ? hubMembers(n.id).length : 0;
-        const isSuggHighlighted = hoveredSuggThoughtIds && hoveredSuggThoughtIds.has(n.id);
-        const isVacuumHighlighted = (vacuumTopicId && vacuumSelectedIds.has(n.id)) || isSuggHighlighted;
+
+        // -- Staging / hover highlight logic (for JSX border/cursor only; opacity is owned by RAF loop) --
+        const hoveredSugg = hoveredSuggId && aiTopicSuggestions
+          ? aiTopicSuggestions.find(s => s.id === hoveredSuggId) : null;
+        const hoveredSuggThoughtIdSet = hoveredSugg ? new Set(hoveredSugg.thoughtIds || []) : null;
+
+        const isInStaging = stagingSuggId && stagingNodeIds && stagingNodeIds.has(n.id);
+        const isInHoverPreview = hoveredSuggThoughtIdSet && hoveredSuggThoughtIdSet.has(n.id);
+
+        const isVacuumHighlighted = (vacuumTopicId && vacuumSelectedIds.has(n.id));
         const isVacuumTargetTopic = vacuumTopicId === n.id;
-        const nodeOpacity = vacuumTopicId
-          ? (isVacuumTargetTopic || isVacuumHighlighted ? 1 : (n.topicId && n.topicId !== vacuumTopicId ? 0.35 : 0.6))
-          : (hoveredSuggThoughtIds ? (isSuggHighlighted ? 1 : 0.35) : undefined);
+
+        // Does this topic node match the hovered/staged suggestion's target topic name?
+        const activeSuggTitle = hoveredSugg?.topicName
+          ?? (stagingSuggId && aiTopicSuggestions ? aiTopicSuggestions.find(s => s.id === stagingSuggId)?.topicName : null);
+        const isSuggTargetTopic = activeSuggTitle && (n.isTopic || n.isHub) && n.title &&
+          n.title.toLowerCase() === activeSuggTitle.toLowerCase();
+
         const isAnsweredQuestion = n.isQuestion && w.links.some(l => l.a === n.id || l.b === n.id);
         const isUnansweredQuestion = n.isQuestion && !isAnsweredQuestion;
         return (
@@ -425,7 +586,9 @@ export const CanvasEngine = ({
                 }
               } else {
                 delete nodeEls.current[n.id];
-                delete nodeBounds.current[n.id];
+                // FIX: Do NOT delete nodeBounds.current[n.id] here. 
+                // Retaining the bounds prevents the physics engine from collapsing 
+                // the bubble to 0x0 during React re-renders.
                 // Note: resizeObserver automatically unobserves unmounted elements
               }
             }}
@@ -434,7 +597,7 @@ export const CanvasEngine = ({
             onMouseEnter={() => { if (n.isTopic && selIds.size > 0) setHoveredPullTopicId(n.id); }}
             onMouseLeave={() => { if (n.isTopic) setHoveredPullTopicId(null); }}
             className="bubble transition-opacity duration-200"
-            style={{ opacity: nodeOpacity, cursor: (activeSorterTopicId && !n.isTopic && !n.isHub) || isVacuumHighlighted ? 'pointer' : undefined }}>
+            style={{ cursor: (activeSorterTopicId && !n.isTopic && !n.isHub) || isVacuumHighlighted || useStore.getState().stagingSuggId ? 'pointer' : undefined }}>
               {n.isBurstStart && n.burstTimeStr && (
                 <div className="burst-pill">{n.burstTimeStr}</div>
               )}
@@ -446,7 +609,7 @@ export const CanvasEngine = ({
                   ? (theme === 'light' ? '#FFFFFF' : '#2A2A2A')
                   : (n.topicId && n.color === 0 ? 'var(--surface-bg)' : c.bg),
                 border: n.isHub || n.isTopic
-                  ? `1.5px solid ${isVacuumTargetTopic || isSel || targetId === n.id || activeTopic === n.id ? (theme === 'light' ? '#000000' : '#FFFFFF') : (theme === 'light' ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.20)')}`
+                  ? `1.5px solid ${isVacuumTargetTopic || isSuggTargetTopic || isSel || targetId === n.id || activeTopic === n.id ? (theme === 'light' ? '#000000' : '#FFFFFF') : (theme === 'light' ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.20)')}`
                   : `1.5px solid ${isUnansweredQuestion ? 'rgba(239, 68, 68, 0.85)' : isSource || isSel || targetId === n.id ? (theme === 'light' ? '#000000' : '#FFFFFF') : (n.topicId && n.color === 0 ? 'var(--surface-border)' : c.border)}`,
                 color: theme === 'light' ? '#1B1B1B' : '#EAEAEA',
                 boxShadow: n.isHub || n.isTopic
@@ -454,7 +617,8 @@ export const CanvasEngine = ({
                   : 'var(--surface-shadow)',
                 maxWidth: n.isHub ? 260 : n.isTopic ? 240 : 250,
                 minWidth: n.isHub || n.isTopic ? 170 : 0,
-                ...(isSel || isVacuumTargetTopic ? { outline: `2px solid ${theme === 'light' ? '#000000' : '#FFFFFF'}`, outlineOffset: 3 } : {}),
+                ...(isSel || isVacuumTargetTopic || isSuggTargetTopic ? { outline: `2px solid ${theme === 'light' ? '#000000' : '#FFFFFF'}`, outlineOffset: 3 } : {}),
+                // Note: amber staging/hover outline is applied imperatively by renderCanvasDOM RAF loop
                 ...(focusedOutlineId === n.id ? { outline: `3px solid ${theme === 'light' ? '#3B82F6' : '#60A5FA'}`, outlineOffset: 4, boxShadow: `0 0 20px ${theme === 'light' ? 'rgba(59,130,246,0.4)' : 'rgba(96,165,250,0.4)'}` } : {}),
               }}>
               {n.isTopic && selIds.size > 0 && (
@@ -521,16 +685,8 @@ export const CanvasEngine = ({
                         + (theme === 'light' ? 'text-gray-500 hover:text-gray-900 hover:bg-gray-200/60' : 'text-neutral-400 hover:text-neutral-200 hover:bg-neutral-700/50')}>
                       <CopyIcon size={13} />
                     </button>
-                    <button data-ui
-                      type="button"
-                      onPointerDown={e => e.stopPropagation()}
-                      onClick={e => { e.stopPropagation(); toggleVacuumPreview(n); }}
-                      title={isVacuumTargetTopic ? "Exit Smart Vacuum preview" : "Smart Vacuum: scan for matching thoughts"}
-                      className={'p-1 rounded-md transition-colors flex items-center justify-center '
-                        + (isVacuumTargetTopic ? (theme === 'light' ? 'bg-gray-200 text-gray-900 font-bold' : 'bg-neutral-700 text-neutral-100 font-bold') : (theme === 'light' ? 'text-gray-500 hover:text-gray-900 hover:bg-gray-200/60' : 'text-neutral-400 hover:text-neutral-200 hover:bg-neutral-700/50'))}>
-                      <MagnetIcon size={13} />
-                    </button>
                   </div>
+
                 </div>
               )}
               <span className={n.isHub || n.isTopic ? 'font-display font-bold text-[20px] sm:text-[22px] leading-snug' : 'text-[15px] sm:text-[16px] leading-relaxed font-semibold'}
@@ -619,6 +775,100 @@ export const CanvasEngine = ({
           </div>
         );
       })}
+
+      {(worldRef.current?.spawnMarker) && (() => {
+        const marker = worldRef.current.spawnMarker;
+        return (
+          <div
+            data-ui
+            className="absolute flex flex-col items-center group select-none pointer-events-auto cursor-grab active:cursor-grabbing"
+            style={{
+              left: marker.x,
+              top: marker.y,
+              transform: 'translate(-50%, -100%)',
+              zIndex: 999,
+            }}
+            onPointerDown={(e) => {
+              e.stopPropagation();
+              const startClientX = e.clientX;
+              const startClientY = e.clientY;
+              const startMarkerX = marker.x;
+              const startMarkerY = marker.y;
+              let moved = false;
+
+              const onPointerMove = (ev) => {
+                const dx = (ev.clientX - startClientX) / viewRef.current.s;
+                const dy = (ev.clientY - startClientY) / viewRef.current.s;
+                if (Math.hypot(dx, dy) > 3) moved = true;
+                marker.x = Math.round(startMarkerX + dx);
+                marker.y = Math.round(startMarkerY + dy);
+                bump();
+              };
+
+              const onPointerUp = () => {
+                window.removeEventListener('pointermove', onPointerMove);
+                window.removeEventListener('pointerup', onPointerUp);
+                if (moved) {
+                  worldRef.current.updated = Date.now();
+                  bump();
+                  persist();
+                }
+              };
+
+              window.addEventListener('pointermove', onPointerMove);
+              window.addEventListener('pointerup', onPointerUp);
+            }}
+          >
+            {/* Delete / Clear button on hover */}
+            <button
+              type="button"
+              title="Remove spawn pin"
+              onClick={(e) => {
+                e.stopPropagation();
+                pushUndo();
+                worldRef.current.spawnMarker = null;
+                worldRef.current.updated = Date.now();
+                bump();
+                persist();
+              }}
+              className="absolute -top-2 -right-2 opacity-0 group-hover:opacity-100 p-0.5 rounded-full bg-neutral-900/90 text-neutral-400 hover:text-red-400 border border-neutral-700/80 transition-all duration-150 shadow-md z-20"
+            >
+              <XIcon size={10} />
+            </button>
+
+            {/* Sleek Vector Map Pin */}
+            <div className="relative flex items-center justify-center transition-transform duration-150 group-hover:scale-110 group-active:scale-95">
+              <svg
+                width="28"
+                height="36"
+                viewBox="0 0 28 36"
+                fill="none"
+                xmlns="http://www.w3.org/2000/svg"
+                className="drop-shadow-lg"
+              >
+                {/* Outer pin body */}
+                <path
+                  d="M14 0C6.268 0 0 6.268 0 14C0 24.5 14 36 14 36C14 36 28 24.5 28 14C28 6.268 21.732 0 14 0Z"
+                  fill={theme === 'light' ? '#1B1B1B' : '#FFFFFF'}
+                />
+                {/* Inner core circle */}
+                <circle
+                  cx="14"
+                  cy="13"
+                  r="5"
+                  fill={theme === 'light' ? '#F9F9F7' : '#121212'}
+                />
+              </svg>
+            </div>
+
+            {/* Ground Contact Shadow */}
+            <div 
+              className="w-3.5 h-1 rounded-full -mt-0.5 opacity-40 blur-[1px]"
+              style={{ background: theme === 'light' ? 'rgba(0,0,0,0.5)' : 'rgba(0,0,0,0.8)' }}
+            />
+          </div>
+        );
+      })()}
     </div>
   );
 };

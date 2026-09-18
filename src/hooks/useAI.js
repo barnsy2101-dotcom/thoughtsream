@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from 'react';
+import { useCallback } from 'react';
 import { useStore } from '../store/useStore';
 import { topicOf, uid } from '../utils/helpers';
 
@@ -29,14 +29,14 @@ export function useAI({
       const existingHub = w.nodes.find(n => 
         (n.isHub || n.isTopic) && n.title && n.title.toLowerCase() === cat.toLowerCase()
       );
-      if (!existingHub && ids.length >= 5) {
+      if (!existingHub && ids.length >= 3) {
         metaHubs.push({ topicName: cat, thoughtIds: ids });
       } else if (existingHub && ids.length >= 1) {
         metaHubs.push({ topicName: existingHub.title, thoughtIds: ids });
       }
     }
     if (metaHubs.length > 0) {
-      useStore.getState().setAiTopicSuggestions(metaHubs.slice(0, 3));
+      useStore.getState().setAiTopicSuggestions(metaHubs.map(s => ({ ...s, id: uid() })).slice(0, 3));
     }
   };
 
@@ -124,17 +124,15 @@ export function useAI({
         .filter(n => (n.isHub || n.isTopic) && n.title)
         .map(n => ({ id: n.id, title: n.title }));
 
-      const prompt = `You are the synthesis engine inside a brainstorming canvas. Analyze these thoughts and suggest connections and thematic clusters.
+      const prompt = `You are a synthesis engine. Analyze these thoughts and suggest thematic clusters.
 Thoughts (id: text):
 ${thoughts.map(t => `${t.id}: ${t.text}`).join('\n')}
-Existing cluster hubs:
-${JSON.stringify(hubs)}
-
+Existing topics: ${JSON.stringify(hubs)}
 Rules:
-- Suggest at most 5 new connections between genuinely related thoughts. Each reason must be one short, specific sentence (max 10 words).
-- NEW TOPICS: Propose a new topic ONLY when 5 or more unassigned thoughts share a strong theme NOT already covered by an existing hub.
-- EXISTING TOPICS: If 1 or more unassigned thoughts belong to an existing hub/topic title from the list above, list them under that EXACT existing title. NEVER invent a new or duplicate title for an existing topic.
-- Only use thought ids from the list above. Quality over quantity - an empty list is fine.`;
+- NEW TOPICS: Propose a new topic ONLY when 3 or more unassigned thoughts share a clear theme NOT already covered by an existing topic.
+- EXISTING TOPICS: If 1 or more unassigned thoughts clearly belong to an existing topic title from the list above, list them under that EXACT existing title. NEVER invent a new or duplicate title for an existing topic.
+- Return a maximum of 3 highly confident topic suggestions. Quality over quantity — an empty list is fine.
+- Only use thought ids from the list above.`;
       const schema = {
         type: 'object',
         properties: {
@@ -151,7 +149,7 @@ Rules:
       };
       const out = await callAI(prompt, schema);
       lastAIHashRef.current = hash;
-      useStore.getState().setAiTopicSuggestions((out.topics || []).slice(0, 3));
+      useStore.getState().setAiTopicSuggestions((out.topics || []).map(s => ({ ...s, id: uid() })).slice(0, 3));
     } catch (e) {
       setAiNote(e.message.slice(0, 80));
       simulateAI();
@@ -160,13 +158,7 @@ Rules:
     }
   }, [worldRef, lastAIHashRef, setAiBusy, setAiNote]);
 
-  useEffect(() => {
-    const t = setInterval(() => {
-      const apiKey = useStore.getState().apiKey;
-      if (useStore.getState().autoAIEnabled) runAI();
-    }, useStore.getState().apiKey ? 60000 : 7000);
-    return () => clearInterval(t);
-  }, [runAI]);
+
 
   const expandThought = async (node) => {
     setExpandBusy(true);

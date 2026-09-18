@@ -1,6 +1,6 @@
 import React from 'react';
 import { useStore } from '../store/useStore';
-import { PlusIcon, MinusIcon, FitIcon, UndoIcon, RedoIcon, ClockIcon, PlayIcon, SparkIcon } from './icons';
+import { PlusIcon, MinusIcon, FitIcon, UndoIcon, RedoIcon, ClockIcon, PlayIcon, SparkIcon, PencilIcon, SquareIcon, StraightLineIcon, FreeArrowIcon, MapPinIcon } from './icons';
 
 export function Toolbar({ zoomBy, zoomToFit, undo, redo, undoStackLength, redoStackLength, runAI, nodesLength }) {
   const replayIdx = useStore(s => s.replayIdx);
@@ -11,6 +11,12 @@ export function Toolbar({ zoomBy, zoomToFit, undo, redo, undoStackLength, redoSt
   const aiBusy = useStore(s => s.aiBusy);
   const linkFrom = useStore(s => s.linkFrom);
   const setLinkFrom = useStore(s => s.setLinkFrom);
+  const activeDrawTool = useStore(s => s.activeDrawTool);
+  const setActiveDrawTool = useStore(s => s.setActiveDrawTool);
+  const drawMenuOpen = useStore(s => s.drawMenuOpen);
+  const setDrawMenuOpen = useStore(s => s.setDrawMenuOpen);
+  const isPlacingMarker = useStore(s => s.isPlacingMarker);
+  const setIsPlacingMarker = useStore(s => s.setIsPlacingMarker);
 
   const replaying = replayIdx !== null;
 
@@ -28,6 +34,46 @@ export function Toolbar({ zoomBy, zoomToFit, undo, redo, undoStackLength, redoSt
         }`}
       >
         ↗
+      </button>
+      <div className="relative flex flex-col items-center">
+        <button 
+          onClick={() => setDrawMenuOpen(!drawMenuOpen)} 
+          title="Drawing Tools" 
+          className={`ghost-btn rounded-lg p-2 transition-all ${
+            activeDrawTool || drawMenuOpen ? 'bg-indigo-600/20 text-indigo-300' : 'text-neutral-300'
+          }`}
+        >
+          <PencilIcon size={15} />
+        </button>
+        {drawMenuOpen && (
+          <div className="absolute right-full mr-2 top-0 flex items-center gap-1 bg-[#1E1E1E] border border-neutral-700 p-1 rounded-xl shadow-xl">
+            <button 
+              onClick={() => { setActiveDrawTool(activeDrawTool === 'rect' ? null : 'rect'); setDrawMenuOpen(false); }}
+              className={`p-2 rounded-lg transition-all ${activeDrawTool === 'rect' ? 'bg-indigo-600 text-white' : 'text-neutral-300 hover:bg-neutral-800'}`}
+              title="Square (⌘S)"
+            ><SquareIcon size={15} /></button>
+            <button 
+              onClick={() => { setActiveDrawTool(activeDrawTool === 'line' ? null : 'line'); setDrawMenuOpen(false); }}
+              className={`p-2 rounded-lg transition-all ${activeDrawTool === 'line' ? 'bg-indigo-600 text-white' : 'text-neutral-300 hover:bg-neutral-800'}`}
+              title="Straight Line (⌘L)"
+            ><StraightLineIcon size={15} /></button>
+            <button 
+              onClick={() => { setActiveDrawTool(activeDrawTool === 'arrow' ? null : 'arrow'); setDrawMenuOpen(false); }}
+              className={`p-2 rounded-lg transition-all ${activeDrawTool === 'arrow' ? 'bg-indigo-600 text-white' : 'text-neutral-300 hover:bg-neutral-800'}`}
+              title="Free Arrow (⌘A)"
+            ><FreeArrowIcon size={15} /></button>
+          </div>
+        )}
+      </div>
+      <div className="w-6 h-px bg-neutral-600/40 my-1" />
+      <button 
+        onClick={() => setIsPlacingMarker(!isPlacingMarker)} 
+        title="Drop Pin Tool" 
+        className={`ghost-btn rounded-lg p-2 transition-all ${
+          isPlacingMarker ? 'bg-indigo-600 text-white font-bold shadow-md' : 'text-neutral-300'
+        }`}
+      >
+        <MapPinIcon size={15} />
       </button>
       <button onClick={undo} title="Undo (⌘Z)" disabled={!undoStackLength}
         className="ghost-btn text-neutral-300 disabled:text-neutral-700 rounded-lg p-2"><UndoIcon size={15} /></button>

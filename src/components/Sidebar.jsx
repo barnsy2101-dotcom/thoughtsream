@@ -14,9 +14,10 @@ const ChevronRightIcon = ({ size = 16, className = "" }) => (
   </svg>
 );
 
-const CanvasItem = ({ s, isCurrent, theme, renameSession, openSession, duplicateSession, deleteSession, drawerTab, moveCanvasToProject, projects }) => {
+const CanvasItem = ({ s, isCurrent, theme, renameSession, openSession, duplicateSession, deleteSession, moveCanvasToProject, projects }) => {
   const thoughtCount = (s.nodes || []).filter(n => !n.isHub).length;
   const formattedDate = new Date(s.updated).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  const isDaily = s.name === "Today's Stream" || s.name.startsWith("Stream");
 
   return (
     <div className={'group rounded-xl p-3 border transition-all duration-150 relative ' +
@@ -29,11 +30,11 @@ const CanvasItem = ({ s, isCurrent, theme, renameSession, openSession, duplicate
           {isCurrent ? (
             <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0 shadow-[0_0_8px_rgba(52,211,153,0.8)]" title="Currently Active" />
           ) : (
-            <span className="text-xs shrink-0 opacity-60">{drawerTab === 'daily' ? '📅' : '📄'}</span>
+            <span className="text-xs shrink-0 opacity-60">{isDaily ? '📅' : '📄'}</span>
           )}
           
           <input defaultValue={s.name}
-            onBlur={e => renameSession(s.id, e.target.value.trim() || (drawerTab === 'daily' ? "Today's Stream" : "Untitled Canvas"))}
+            onBlur={e => renameSession(s.id, e.target.value.trim() || (isDaily ? "Today's Stream" : "Untitled Canvas"))}
             onKeyDown={e => e.key === 'Enter' && e.target.blur()}
             className="w-full bg-transparent text-xs font-semibold border-b border-transparent focus:border-neutral-500 outline-none truncate"
             style={{ color: isCurrent ? '#FFFFFF' : '#EAEAEA' }}
@@ -57,7 +58,7 @@ const CanvasItem = ({ s, isCurrent, theme, renameSession, openSession, duplicate
             </button>
           )}
           
-          {drawerTab === 'projects' && projects && projects.length > 0 && (
+          {projects && projects.length > 0 && (
             <select 
               className="text-[10px] px-1 py-1 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-neutral-300 border border-neutral-700/50 outline-none"
               value={s.projectId || ''}
@@ -105,8 +106,6 @@ export function Sidebar({
   const theme = useStore(s => s.theme);
   const drawerSearch = useStore(s => s.drawerSearch);
   const setDrawerSearch = useStore(s => s.setDrawerSearch);
-  const drawerTab = useStore(s => s.drawerTab);
-  const setDrawerTab = useStore(s => s.setDrawerTab);
   const projects = useStore(s => s.projects) || [];
 
   const [collapsedProjects, setCollapsedProjects] = useState({});
@@ -165,67 +164,15 @@ export function Sidebar({
         </div>
       </div>
 
-      {/* Segmented Control Tabs */}
-      <div className="px-3 pb-2">
-        <div className="flex p-1 rounded-xl bg-neutral-800/60 border border-neutral-700/40 text-xs font-medium">
-          <button
-            onClick={() => setDrawerTab('projects')}
-            className={'flex-1 py-1.5 rounded-lg text-center transition-all flex items-center justify-center gap-1.5 ' + 
-              (drawerTab === 'projects' 
-                ? 'bg-neutral-700 text-white font-semibold shadow-sm border border-neutral-600/60' 
-                : 'text-neutral-400 hover:text-neutral-200')}
-          >
-            <span>📁</span>
-            <span>Projects</span>
-            <span className="text-[10px] opacity-70 px-1.5 py-0.2 rounded-full bg-neutral-900/50">
-              {sessionList.filter(s => !(s.name === "Today's Stream" || s.name.startsWith("Stream - ") || s.name.startsWith("Stream:"))).length}
-            </span>
-          </button>
-
-          <button
-            onClick={() => setDrawerTab('daily')}
-            className={'flex-1 py-1.5 rounded-lg text-center transition-all flex items-center justify-center gap-1.5 ' + 
-              (drawerTab === 'daily' 
-                ? 'bg-neutral-700 text-white font-semibold shadow-sm border border-neutral-600/60' 
-                : 'text-neutral-400 hover:text-neutral-200')}
-          >
-            <span>📅</span>
-            <span>Daily Streams</span>
-            <span className="text-[10px] opacity-70 px-1.5 py-0.2 rounded-full bg-neutral-900/50">
-              {sessionList.filter(s => (s.name === "Today's Stream" || s.name.startsWith("Stream - ") || s.name.startsWith("Stream:"))).length}
-            </span>
-          </button>
-        </div>
-      </div>
-
       {/* Streams List */}
       <div className="flex-1 overflow-y-auto p-3 space-y-2" key={sessionsRev}>
         {(() => {
-          const isDailyCategory = (name) => name === "Today's Stream" || name.startsWith("Stream - ") || name.startsWith("Stream:");
-          
           const filteredSessions = sessionList.filter(s => {
-            const matchesTab = drawerTab === 'daily' ? isDailyCategory(s.name) : !isDailyCategory(s.name);
             const matchesSearch = !drawerSearch.trim() || s.name.toLowerCase().includes(drawerSearch.toLowerCase().trim());
-            return matchesTab && matchesSearch;
+            return matchesSearch;
           });
 
-          if (drawerTab === 'daily') {
-            if (!filteredSessions.length) {
-              return (
-                <div className="text-center py-10 px-4">
-                  <span className="text-2xl block mb-2 opacity-50">📅</span>
-                  <p className="text-xs text-neutral-400 font-medium whitespace-pre-line">
-                    {drawerSearch 
-                      ? `No streams found matching "${drawerSearch}"`
-                      : 'No archived daily streams yet.\nDaily streams auto-archive at midnight.'}
-                  </p>
-                </div>
-              );
-            }
-            return filteredSessions.map(s => <CanvasItem key={s.id} s={s} isCurrent={s.id === currentWorldId} theme={theme} renameSession={renameSession} openSession={openSession} duplicateSession={duplicateSession} deleteSession={deleteSession} drawerTab={drawerTab} moveCanvasToProject={moveCanvasToProject} projects={projects} />);
-          } else {
-            // Projects Tab
-            const standaloneCanvases = filteredSessions.filter(s => !s.projectId);
+          const standaloneCanvases = filteredSessions.filter(s => !s.projectId);
             
             return (
               <div className="space-y-4">
@@ -233,8 +180,6 @@ export function Sidebar({
                 {projects.map(proj => {
                   const projCanvases = filteredSessions.filter(s => s.projectId === proj.id);
                   const isCollapsed = collapsedProjects[proj.id];
-                  // If searching and this project has no matching canvases, we can optionally hide it,
-                  // but let's show it if its name matches or it has matching canvases.
                   const matchesSearch = !drawerSearch.trim() || proj.name.toLowerCase().includes(drawerSearch.toLowerCase().trim()) || projCanvases.length > 0;
                   
                   if (!matchesSearch) return null;
@@ -273,7 +218,7 @@ export function Sidebar({
                         <div className="p-2 pt-0 space-y-1.5 border-t border-neutral-800/40 bg-neutral-900/10">
                           <div className="h-1"></div>
                           {projCanvases.map(s => (
-                            <CanvasItem key={s.id} s={s} isCurrent={s.id === currentWorldId} theme={theme} renameSession={renameSession} openSession={openSession} duplicateSession={duplicateSession} deleteSession={deleteSession} drawerTab={drawerTab} moveCanvasToProject={moveCanvasToProject} projects={projects} />
+                            <CanvasItem key={s.id} s={s} isCurrent={s.id === currentWorldId} theme={theme} renameSession={renameSession} openSession={openSession} duplicateSession={duplicateSession} deleteSession={deleteSession} moveCanvasToProject={moveCanvasToProject} projects={projects} />
                           ))}
                         </div>
                       )}
@@ -302,17 +247,17 @@ export function Sidebar({
                     )}
                     <div className="space-y-2">
                       {standaloneCanvases.map(s => (
-                        <CanvasItem key={s.id} s={s} isCurrent={s.id === currentWorldId} theme={theme} renameSession={renameSession} openSession={openSession} duplicateSession={duplicateSession} deleteSession={deleteSession} drawerTab={drawerTab} moveCanvasToProject={moveCanvasToProject} projects={projects} />
+                        <CanvasItem key={s.id} s={s} isCurrent={s.id === currentWorldId} theme={theme} renameSession={renameSession} openSession={openSession} duplicateSession={duplicateSession} deleteSession={deleteSession} moveCanvasToProject={moveCanvasToProject} projects={projects} />
                       ))}
                     </div>
                   </div>
                 )}
               </div>
             );
-          }
         })()}
       </div>
     </div>
   );
 }
 
+export default Sidebar;

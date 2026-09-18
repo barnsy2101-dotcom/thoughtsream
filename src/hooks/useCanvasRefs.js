@@ -28,6 +28,7 @@ export function useCanvasRefs() {
   const recRef = useRef(null);
   const pullTetherGroupRef = useRef(null);
   const sourceTetherGroupRef = useRef(null);
+  const drawingRef = useRef(null);
 
   return {
     containerRef,
@@ -56,6 +57,7 @@ export function useCanvasRefs() {
     redoStack,
     recRef,
     pullTetherGroupRef,
-    sourceTetherGroupRef
+    sourceTetherGroupRef,
+    drawingRef
   };
 }

@@ -59,6 +59,49 @@ export function useCanvasMutators({
   }, []);
 
   /* ---------- topics (manual gravity clusters, no links) ---------- */
+  /* ---------- camera panning ---------- */
+  const panToNode = useCallback((nodeId, smooth = false) => {
+    const w = worldRef.current;
+    const node = w.nodes.find(n => n.id === nodeId);
+    if (!node) return;
+    
+    const v = viewRef.current;
+    const splitViewOpen = useStore.getState().splitViewOpen;
+    // Calculate the center of the visible canvas (accounting for the 380px sidebar)
+    const availableWidth = splitViewOpen ? window.innerWidth - 380 : window.innerWidth;
+    
+    const targetX = (availableWidth / 2) - (node.x * v.s);
+    const targetY = (window.innerHeight / 2) - (node.y * v.s);
+
+    if (smooth) {
+      const startX = v.x;
+      const startY = v.y;
+      const startTime = performance.now();
+      const duration = 400; // ms
+
+      const animate = (now) => {
+        const elapsed = now - startTime;
+        const progress = Math.min(elapsed / duration, 1);
+        const ease = 1 - Math.pow(1 - progress, 3); // easeOutCubic
+
+        v.x = startX + (targetX - startX) * ease;
+        v.y = startY + (targetY - startY) * ease;
+        w.updated = Date.now(); // keep physics/rendering active
+        bump();
+
+        if (progress < 1) {
+          requestAnimationFrame(animate);
+        }
+      };
+      requestAnimationFrame(animate);
+    } else {
+      // Instantly snap the camera to center the node
+      v.x = targetX;
+      v.y = targetY;
+      bump();
+    }
+  }, [bump]);
+
   const createTopic = useCallback((name) => {
     name = (name || '').trim();
     if (!name) return null;
@@ -66,7 +109,55 @@ export function useCanvasMutators({
     const existing = w.nodes.find(n => (n.isTopic || n.isHub) && n.title && n.title.toLowerCase() === name.toLowerCase());
     if (existing) return existing;
     pushUndo();
-    const spawn = screenToWorld(window.innerWidth / 2 + (Math.random() * 120 - 60), window.innerHeight * 0.42);
+    
+    // Default spawn point near the center of the viewport
+    let spawn = screenToWorld(window.innerWidth / 2 + (Math.random() * 120 - 60), window.innerHeight * 0.42);
+    
+    // SPIRAL SEARCH FOR FREE SPACE
+    const topics = w.nodes.filter(n => n.isTopic || n.isHub);
+    let didSpiral = false;
+    if (topics.length > 0) {
+      let angle = 0;
+      let radius = 0;
+      const stepAngle = Math.PI / 4; // 45 degrees
+      const stepRadius = 50;
+      const OUR_AURA = 200; // Base aura for a new topic + buffer
+
+      while (radius < 5000) {
+        let collision = false;
+        for (const t of topics) {
+          const dx = spawn.x - t.x;
+          const dy = spawn.y - t.y;
+          const dist = Math.sqrt(dx*dx + dy*dy);
+          
+          // Calculate existing topic's dynamic aura
+          const members = w.nodes.filter(n => n.topicId === t.id);
+          const tAura = 100 + (members.length * 18) + 100; // 100 base + dynamic + 100 padding
+          
+          const minSafeDist = tAura + OUR_AURA;
+          
+          if (dist < minSafeDist) {
+            collision = true;
+            break;
+          }
+        }
+        
+        if (!collision) {
+          break; // Found a safe spot
+        }
+        
+        // Spiral outwards to find a clear area
+        didSpiral = true;
+        angle += stepAngle;
+        radius += stepRadius;
+        const center = screenToWorld(window.innerWidth / 2, window.innerHeight * 0.42);
+        spawn = {
+          x: center.x + Math.cos(angle) * radius,
+          y: center.y + Math.sin(angle) * radius
+        };
+      }
+    }
+
     const t = {
       id: uid(), isTopic: true, title: name, text: name, notes: '', color: 2,
       x: spawn.x, y: spawn.y, vx: 0, vy: 0, floating: false,
@@ -78,9 +169,16 @@ export function useCanvasMutators({
     setActiveTopic(t.id);
     spawnBurst(spawn.x, spawn.y, { color: TOPIC_ACCENT });
     w.updated = Date.now();
-    bump();
+    
+    if (didSpiral) {
+      panToNode(t.id, true); // Smooth pan to the newly found free space
+    } else {
+      bump();
+    }
+    
+    persist();
     return t;
-  }, []);
+  }, [pushUndo, spawnBurst, panToNode, bump, persist]);
 
   const toggleVacuumPreview = useCallback(async (topicNode) => {
     if (useStore.getState().vacuumTopicId === topicNode.id) {
@@ -326,21 +424,7 @@ Rules:
     persist();
   }, [bump, persist, spawnBurst]);
 
-  const panToNode = useCallback((nodeId) => {
-    const w = worldRef.current;
-    const node = w.nodes.find(n => n.id === nodeId);
-    if (!node) return;
-    
-    const v = viewRef.current;
-    const splitViewOpen = useStore.getState().splitViewOpen;
-    // Calculate the center of the visible canvas (accounting for the 380px sidebar)
-    const availableWidth = splitViewOpen ? window.innerWidth - 380 : window.innerWidth;
-    
-    // Instantly snap the camera to center the node
-    v.x = (availableWidth / 2) - (node.x * v.s);
-    v.y = (window.innerHeight / 2) - (node.y * v.s);
-    bump();
-  }, [bump]);
+
 
   return {
     pushUndo, restoreSnapshot, undo, redo,

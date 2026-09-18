@@ -27,7 +27,9 @@ export function useWorkspace({
       updated: w.updated || Date.now(),
       nodes: w.nodes ? w.nodes.map(pickNode) : [],
       links: w.links || [],
+      annotations: w.annotations || [],
       rejected: w.rejected || [],
+      spawnMarker: w.spawnMarker || null,
     };
     saveStore(store);
     localStorage.setItem(LS_CURRENT, w.id);
@@ -54,7 +56,9 @@ export function useWorkspace({
       updated: w.updated || Date.now(),
       nodes: w.nodes ? w.nodes.map(pickNode) : [],
       links: w.links || [],
+      annotations: w.annotations || [],
       rejected: w.rejected || [],
+      spawnMarker: w.spawnMarker || null,
     };
     saveStore(store);
     localStorage.setItem(LS_CURRENT, w.id);
