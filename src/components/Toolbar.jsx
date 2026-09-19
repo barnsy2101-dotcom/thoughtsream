@@ -1,6 +1,6 @@
 import React from 'react';
 import { useStore } from '../store/useStore';
-import { PlusIcon, MinusIcon, FitIcon, UndoIcon, RedoIcon, SparkIcon, PencilIcon, SquareIcon, StraightLineIcon, FreeArrowIcon, MapPinIcon, MousePointerIcon, HandIcon, FrameIcon } from './icons';
+import { PlusIcon, MinusIcon, FitIcon, UndoIcon, RedoIcon, SparkIcon, ShapesIcon, SquareIcon, StraightLineIcon, FreeArrowIcon, MapPinIcon, MousePointerIcon, HandIcon, FrameIcon } from './icons';
 
 export function Toolbar({ zoomBy, zoomToFit, undo, redo, undoStackLength, redoStackLength, runAI, nodesLength }) {
   const aiBusy = useStore(s => s.aiBusy);
@@ -17,6 +17,8 @@ export function Toolbar({ zoomBy, zoomToFit, undo, redo, undoStackLength, redoSt
 
   const isDefaultSelect = !linkFrom && !activeDrawTool && !isPlacingMarker;
   const pencilMenuRef = React.useRef(null);
+  const splitViewOpen = useStore(s => s.splitViewOpen);
+  const splitWidth = useStore(s => s.splitWidth);
 
   React.useEffect(() => {
     if (!drawMenuOpen) return;
@@ -41,7 +43,7 @@ export function Toolbar({ zoomBy, zoomToFit, undo, redo, undoStackLength, redoSt
   };
 
   return (
-    <div data-ui className="glass absolute right-3 top-1/2 -translate-y-1/2 flex flex-col items-center gap-0.5 p-1.5 z-30 rounded-2xl">
+    <div data-ui className="glass fixed top-1/2 -translate-y-1/2 flex flex-col items-center gap-0.5 p-1.5 z-30 rounded-2xl transition-colors duration-200" style={{ right: splitViewOpen ? `${splitWidth + 12}px` : '12px' }}>
       {/* 1. ACTIVE TOOLS (Cursor Modes) */}
       <button 
         onClick={() => {
@@ -105,12 +107,12 @@ export function Toolbar({ zoomBy, zoomToFit, undo, redo, undoStackLength, redoSt
               setIsPlacingMarker(false);
             }
           }} 
-          title="Drawing Tools" 
+          title="Annotations" 
           className={`ghost-btn rounded-lg p-2 transition-all ${
             (activeDrawTool && activeDrawTool !== 'zone') || drawMenuOpen ? 'bg-indigo-600/20 text-indigo-300' : 'text-neutral-300'
           }`}
         >
-          <PencilIcon size={15} />
+          <ShapesIcon size={15} />
         </button>
         {drawMenuOpen && (
           <div className="absolute right-full mr-2 top-0 flex items-center gap-1 bg-[#1E1E1E] border border-neutral-700 p-1 rounded-xl shadow-xl">

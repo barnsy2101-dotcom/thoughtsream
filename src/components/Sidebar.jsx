@@ -50,9 +50,9 @@ const CanvasItem = ({ s, isCurrent, theme, renameSession, openSession, duplicate
           <span className="text-neutral-500">{thoughtCount}</span> thoughts
         </span>
 
-        <div className="flex items-center gap-1 opacity-95 sm:opacity-75 group-hover:opacity-100 transition-opacity">
+        <div className="flex items-center gap-[1px] opacity-95 sm:opacity-75 group-hover:opacity-100 transition-opacity">
           {!isCurrent && (
-            <button onClick={() => openSession(s.id)} title="Open Stream"
+            <button onClick={() => openSession(s.id)} title="Open Canvas"
               className="text-[11px] px-2.5 py-1 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 font-medium transition-colors">
               Open
             </button>
@@ -130,7 +130,7 @@ export function Sidebar({
         style={{ borderColor: theme === 'light' ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.1)' }}>
         <div className="flex items-center gap-2">
           <LibraryIcon size={18} className="text-amber-400" />
-          <h2 className="font-display font-semibold text-base text-inherit">Saved Streams</h2>
+          <h2 className="font-display font-semibold text-base text-inherit">Saved Canvases</h2>
         </div>
         <div className="flex items-center gap-1.5">
           <button onClick={() => {
@@ -153,7 +153,7 @@ export function Sidebar({
           <input
             value={drawerSearch}
             onChange={e => setDrawerSearch(e.target.value)}
-            placeholder="Search streams..."
+            placeholder="Search canvases..."
             className="w-full bg-neutral-800/50 border border-neutral-700/50 rounded-xl pl-8 pr-3 py-1.5 text-xs text-neutral-200 placeholder-neutral-500 outline-none focus:border-amber-500/50 transition-colors"
           />
           {drawerSearch && (

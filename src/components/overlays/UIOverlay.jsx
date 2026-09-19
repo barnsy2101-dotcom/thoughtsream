@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useStore } from '../../store/useStore';
 import { 
   XIcon, SparkIcon, ChevronDownIcon, SearchIcon, PlusIcon, 
-  LibraryIcon, MicIcon, SendIcon, SidebarRightIcon 
+  LibraryIcon, MicIcon, SendIcon, SidebarRightIcon, LightbulbQuestionIcon
 } from '../icons';
 import { TopicMenu } from '../TopicMenu';
 import { HeaderMenu } from '../HeaderMenu';
@@ -73,6 +73,18 @@ export const UIOverlay = ({
   const [moveTopicMenuOpen, setMoveTopicMenuOpen] = useState(false);
   const [tipsOpen, setTipsOpen] = useState(false);
   const [canvasMenuOpen, setCanvasMenuOpen] = useState(false);
+  const tipsRef = React.useRef(null);
+
+  React.useEffect(() => {
+    if (!tipsOpen) return;
+    const handlePointerDown = (e) => {
+      if (tipsRef.current && !tipsRef.current.contains(e.target)) {
+        setTipsOpen(false);
+      }
+    };
+    document.addEventListener('pointerdown', handlePointerDown);
+    return () => document.removeEventListener('pointerdown', handlePointerDown);
+  }, [tipsOpen]);
 
   React.useEffect(() => {
     if (selIds.size === 0) {
@@ -462,11 +474,11 @@ export const UIOverlay = ({
         <HeaderMenu />
       </header>
 
-      {/* Left Edge Streams Tab */}
+      {/* Left Edge Canvases Tab */}
       {!drawerOpen && (
         <div data-ui
           onClick={() => { persist(); setSessionsRev(r => r + 1); setDrawerOpen(true); }}
-          title="Open Streams"
+          title="Open Canvases"
           className="fixed left-0 top-1/2 -translate-y-1/2 z-40 glass rounded-r-xl px-1.5 py-6 flex flex-col items-center gap-3 cursor-pointer hover:bg-neutral-800/60 transition-all border-l-0 shadow-[4px_0_24px_rgba(0,0,0,0.2)] group"
         >
           <LibraryIcon size={16} className="text-neutral-400 group-hover:text-amber-400 transition-colors" />
@@ -474,7 +486,7 @@ export const UIOverlay = ({
             className="text-[10px] font-bold uppercase tracking-widest text-neutral-500 group-hover:text-neutral-300 transition-colors" 
             style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}
           >
-            Streams
+            Canvases
           </span>
         </div>
       )}
@@ -514,7 +526,59 @@ export const UIOverlay = ({
         )}
         {/* topic dropdown menu */}
         <TopicMenu topics={topics} nodes={w.nodes} createTopic={createTopic} />
-        <div className={`glass spotlight-bar flex items-center gap-2 pl-3 pr-2 py-2 transition-all duration-200 ${
+        <div className="flex items-center gap-2 w-full relative z-20">
+          <div ref={tipsRef} className="relative flex items-center">
+            <button
+              type="button"
+              onClick={() => setTipsOpen(o => !o)}
+              className="w-9 h-9 rounded-full flex items-center justify-center text-neutral-400 bg-neutral-800/50 hover:bg-neutral-700/60 border border-neutral-600/40 hover:text-neutral-200 transition-all shadow-md"
+              title="Quick Tips"
+            >
+              <LightbulbQuestionIcon size={18} />
+            </button>
+            {tipsOpen && (
+              <>
+                  <div
+                  className="absolute bottom-full mb-2.5 left-0 z-50 w-80 rounded-2xl border border-neutral-700/60 bg-neutral-950/95 backdrop-blur-xl shadow-2xl overflow-hidden animate-pop-in"
+                  onClick={e => e.stopPropagation()}
+                >
+                  <div className="px-4 pt-3.5 pb-2 border-b border-neutral-800/60">
+                    <p className="text-[10px] uppercase tracking-widest text-neutral-500 font-bold">How to use</p>
+                  </div>
+                  <div className="px-4 py-3 text-[13px] text-neutral-300 leading-relaxed space-y-2">
+                    <p>
+                      <strong>Thoughtstream</strong> is a spatial thinking tool. Type in the bar to create a "thought" on the canvas. Group thoughts into <strong>Topics</strong> to organize them.
+                    </p>
+                    <p>
+                      You can move freely around the canvas, connect thoughts, and arrange them however makes sense to you.
+                    </p>
+                  </div>
+                  <div className="px-4 py-3 bg-neutral-900 border-t border-neutral-800/60">
+                    <p className="text-[10px] uppercase tracking-widest text-neutral-500 font-bold mb-2">Essential Shortcuts</p>
+                    <ul className="space-y-2">
+                      <li className="flex items-center justify-between gap-3">
+                        <span className="text-[11px] text-neutral-400">Add a thought</span>
+                        <kbd className="shrink-0 px-1.5 py-0.5 rounded border border-neutral-700 bg-neutral-800 text-[10px] font-mono font-semibold text-neutral-300">Enter</kbd>
+                      </li>
+                      <li className="flex items-center justify-between gap-3">
+                        <span className="text-[11px] text-neutral-400">Pick a Topic (start of line)</span>
+                        <kbd className="shrink-0 px-1.5 py-0.5 rounded border border-neutral-700 bg-neutral-800 text-[10px] font-mono font-semibold text-neutral-300">/</kbd>
+                      </li>
+                      <li className="flex items-center justify-between gap-3">
+                        <span className="text-[11px] text-neutral-400">New Topic (start of line)</span>
+                        <kbd className="shrink-0 px-1.5 py-0.5 rounded border border-neutral-700 bg-neutral-800 text-[10px] font-mono font-semibold text-neutral-300">//</kbd>
+                      </li>
+                      <li className="flex items-center justify-between gap-3 mt-3 pt-3 border-t border-neutral-800/60">
+                        <span className="text-[11px] text-neutral-300 font-medium">Show all shortcuts</span>
+                        <kbd className="shrink-0 px-1.5 py-0.5 rounded border border-neutral-700 bg-neutral-800 text-[10px] font-mono font-semibold text-neutral-300">?</kbd>
+                      </li>
+                    </ul>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+          <div className={`glass spotlight-bar flex-1 flex items-center gap-2 pl-3 pr-2 py-2 transition-all duration-200 ${
           activeSorterTopicId
             ? 'border-amber-400/50 shadow-[0_0_20px_rgba(245,158,11,0.15)]'
             : activeTopicNode
@@ -642,46 +706,6 @@ export const UIOverlay = ({
             <SendIcon size={16} />
           </button>
         </div>
-        {/* Tips pill + popover */}
-        <div className="relative flex justify-center mt-2">
-          <button
-            type="button"
-            onClick={() => setTipsOpen(o => !o)}
-            className="flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-medium text-neutral-500 hover:text-neutral-300 border border-neutral-700/40 hover:border-neutral-600/60 bg-neutral-900/30 hover:bg-neutral-800/40 transition-all select-none"
-          >
-            <span className="text-[10px]">💡</span>
-            Tips
-          </button>
-
-          {tipsOpen && (
-            <>
-              {/* Dismiss layer */}
-              <div className="fixed inset-0 z-40" onClick={() => setTipsOpen(false)} />
-              {/* Popover card */}
-              <div
-                className="absolute bottom-full mb-2.5 left-1/2 -translate-x-1/2 z-50 w-64 rounded-2xl border border-neutral-700/60 bg-neutral-950/95 backdrop-blur-xl shadow-2xl overflow-hidden animate-pop-in"
-                onClick={e => e.stopPropagation()}
-              >
-                <div className="px-4 pt-3.5 pb-1 border-b border-neutral-800/60">
-                  <p className="text-[10px] uppercase tracking-widest text-neutral-500 font-bold">Quick Tips</p>
-                </div>
-                <ul className="px-4 py-3 space-y-2">
-                  {[
-                    { key: 'Enter', desc: 'Add a thought' },
-                    { key: '/', desc: 'Pick a Topic (start of line)' },
-                    { key: '//', desc: 'New Topic (start of line)' },
-                    { key: '?', desc: 'Show all shortcuts' },
-                    { key: 'Shift+drag', desc: 'Multi-select' },
-                  ].map(tip => (
-                    <li key={tip.key} className="flex items-center justify-between gap-3">
-                      <span className="text-[11px] text-neutral-300">{tip.desc}</span>
-                      <kbd className="shrink-0 px-1.5 py-0.5 rounded border border-neutral-700 bg-neutral-800 text-[10px] font-mono font-semibold text-neutral-300">{tip.key}</kbd>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            </>
-          )}
         </div>
       </form>
 

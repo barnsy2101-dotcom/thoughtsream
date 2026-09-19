@@ -1032,6 +1032,7 @@ function App() {
         handleExportMarkdownOutline={handleExportMarkdownOutline}
         getUniqueCanvasName={getUniqueCanvasName}
         speechSupported={speechSupported}
+        openSession={openSession}
       />
 
       {/* Timer Menu */}

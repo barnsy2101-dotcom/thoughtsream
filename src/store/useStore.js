@@ -19,6 +19,9 @@ export const useStore = create((set) => ({
   splitViewOpen: false,
   setSplitViewOpen: (val) => set({ splitViewOpen: val }),
 
+  splitWidth: 380,
+  setSplitWidth: (val) => set({ splitWidth: val }),
+
   focusedOutlineId: null,
   setFocusedOutlineId: (val) => set({ focusedOutlineId: val }),
 

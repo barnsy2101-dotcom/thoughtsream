@@ -27,8 +27,49 @@ export function LiveOutline({ nodes, onExport, worldRef, bump, persist, addThoug
   const dragRef = useRef(null);
   const [dragEnabledId, setDragEnabledId] = useState(null);
   const [dropIndicator, setDropIndicator] = useState(null);
-  // Unified collapse state — stores both topic IDs and zone IDs
   const [collapsedIds, setCollapsedIds] = useState(new Set());
+  const splitWidth = useStore(s => s.splitWidth);
+  const setSplitWidth = useStore(s => s.setSplitWidth);
+
+  // Clamp splitWidth to window.innerWidth / 3 on mount and resize
+  React.useEffect(() => {
+    const clampWidth = () => {
+      const maxWidth = window.innerWidth / 3;
+      if (splitWidth > maxWidth) {
+        setSplitWidth(maxWidth);
+      }
+    };
+    clampWidth();
+    window.addEventListener('resize', clampWidth);
+    return () => window.removeEventListener('resize', clampWidth);
+  }, [splitWidth, setSplitWidth]);
+
+  const startResizing = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const startX = e.clientX;
+    const startWidth = splitWidth;
+    
+    document.body.style.userSelect = 'none';
+
+    const onPointerMove = (moveEvent) => {
+      const maxWidth = window.innerWidth / 3;
+      const deltaX = startX - moveEvent.clientX;
+      let newWidth = startWidth + deltaX;
+      if (newWidth > maxWidth) newWidth = maxWidth;
+      if (newWidth < 250) newWidth = 250;
+      setSplitWidth(newWidth);
+    };
+
+    const onPointerUp = () => {
+      document.body.style.userSelect = '';
+      window.removeEventListener('pointermove', onPointerMove);
+      window.removeEventListener('pointerup', onPointerUp);
+    };
+
+    window.addEventListener('pointermove', onPointerMove);
+    window.addEventListener('pointerup', onPointerUp);
+  };
 
   if (!splitViewOpen) return null;
 
@@ -362,14 +403,26 @@ export function LiveOutline({ nodes, onExport, worldRef, bump, persist, addThoug
   const sectionCount = zones.length + unzonedTopics.length;
 
   return (
-    <div data-ui className="fixed top-0 right-0 bottom-0 w-[min(380px,92vw)] z-50 shadow-2xl flex flex-col animate-pop-in rounded-l-2xl border-l"
-      style={{ background: isDark ? 'rgba(18, 18, 18, 0.97)' : 'rgba(255, 255, 255, 0.97)', borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)', color: isDark ? '#EAEAEA' : '#1B1B1B' }}
-      onPointerDown={e => e.stopPropagation()} onWheel={e => e.stopPropagation()}>
+    <>
+      <div data-ui className="fixed top-0 right-0 bottom-0 z-50 shadow-2xl flex flex-col animate-pop-in rounded-l-2xl border-l"
+        style={{ 
+          width: splitWidth,
+          background: isDark ? 'rgba(18, 18, 18, 0.97)' : 'rgba(255, 255, 255, 0.97)', 
+          borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)', 
+          color: isDark ? '#EAEAEA' : '#1B1B1B' 
+        }}
+        onPointerDown={e => e.stopPropagation()} onWheel={e => e.stopPropagation()}>
+
+      {/* Resizer Handle */}
+      <div 
+        onPointerDown={startResizing}
+        className="absolute left-0 top-0 bottom-0 w-2 -ml-1 cursor-col-resize hover:bg-neutral-500/30 transition-colors z-50"
+      />
 
       {/* Header */}
       <div className="flex items-center justify-between p-4 border-b shrink-0" style={{ borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)' }}>
         <div className="flex items-center gap-2">
-          <h2 className="font-display font-semibold text-base">Live Outline</h2>
+          <h2 className="font-display font-semibold text-base">Outline (Split View)</h2>
           <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ background: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)', color: isDark ? '#A3A3A3' : '#666' }}>
             {sectionCount} sections
           </span>
@@ -493,5 +546,6 @@ export function LiveOutline({ nodes, onExport, worldRef, bump, persist, addThoug
         </button>
       </div>
     </div>
+    </>
   );
 }

@@ -41,6 +41,7 @@ export const MagnetIcon  = (p) => <Icon {...p} d={<><path d="m6 15-3-3 6.7-6.7a6
 export const ChevronDownIcon = (p) => <Icon {...p} d={<path d="m6 9 6 6 6-6"/>} />;
 export const ArrowUpRightIcon = (p) => <Icon {...p} d={<><path d="M7 7h10v10"/><path d="M7 17 17 7"/></>} />;
 export const PencilIcon  = (p) => <Icon {...p} d={<><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></>} />;
+export const ShapesIcon  = (p) => <Icon {...p} d={<><path d="M8.3 10a.7.7 0 0 1-.626-1.079L11.4 3a.7.7 0 0 1 1.198-.043L16.3 8.9a.7.7 0 0 1-.572 1.1Z"/><rect x="3" y="14" width="7" height="7" rx="1"/><circle cx="17.5" cy="17.5" r="3.5"/></>} />;
 export const SquareIcon  = (p) => <Icon {...p} d={<rect width="18" height="18" x="3" y="3" rx="2" ry="2"/>} />;
 export const StraightLineIcon = (p) => <Icon {...p} d={<line x1="5" y1="19" x2="19" y2="5"/>} />;
 export const FreeArrowIcon = (p) => <Icon {...p} d={<><path d="M12 5v14"/><path d="m19 12-7 7-7-7"/></>} />;
@@ -54,3 +55,12 @@ export const MousePointerIcon = (p) => <Icon {...p} d={<path d="m3 3 7 18 3-7 7-
 export const HandIcon = (p) => <Icon {...p} d={<><path d="M18 11V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v0"/><path d="M14 10V4a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v2"/><path d="M10 10.5V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v8"/><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"/></>} />;
 export const SidebarRightIcon = (p) => <Icon {...p} d={<><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="15" y1="3" x2="15" y2="21"/></>} />;
 export const FrameIcon = (p) => <Icon {...p} d={<><path d="M22 14.5v-5"/><path d="M14.5 22h-5"/><path d="M22 20a2 2 0 0 1-2 2"/><path d="M2 14.5v-5"/><path d="M14.5 2h-5"/><path d="M2 4a2 2 0 0 1 2-2"/><path d="M4 22a2 2 0 0 1-2-2"/><path d="M22 4a2 2 0 0 0-2-2"/></>} />;
+export const LightbulbQuestionIcon = ({ size = 18, className = "" }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+    <path d="M12 2a6 6 0 0 0-6 6c0 2.1 1.1 3.9 2.7 5H15.3c1.6-1.1 2.7-2.9 2.7-5a6 6 0 0 0-6-6z" />
+    <path d="M9 16h6" />
+    <path d="M10 19h4" />
+    <path d="M10.5 6.5a1.5 1.5 0 0 1 3 0c0 1-1.25 1.5-1.5 2.25" />
+    <line x1="12" y1="11.5" x2="12" y2="11.51" strokeWidth="2.5" strokeLinecap="round" />
+  </svg>
+);

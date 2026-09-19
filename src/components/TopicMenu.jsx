@@ -31,7 +31,7 @@ export function TopicMenu({ topics, nodes, createTopic }) {
       <button type="button" onClick={() => { setActiveTopic(null); setTopicMenuOpen(false); }}
         className={'ghost-btn w-full text-left text-[13px] rounded-xl px-3 py-2 flex items-center gap-2 ' + (!activeTopic ? 'text-neutral-100 font-semibold' : 'text-neutral-300')}>
         <span className="w-2 h-2 rounded-full shrink-0" style={{ background: activeTopic ? 'transparent' : TOPIC_ACCENT, border: '1px solid ' + TOPIC_ACCENT }} />
-        No topic <span className="text-neutral-600 text-[11px]">— free-floating</span>
+        Uncategorized <span className="text-neutral-600 text-[11px]">— free-floating</span>
       </button>
       {topics.map(t => (
         <div key={t.id} className="flex items-center gap-1 w-full">
