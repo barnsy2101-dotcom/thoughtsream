@@ -392,14 +392,14 @@ export const UIOverlay = ({
                   </div>
                   
                   {(() => {
-                     const history = JSON.parse(localStorage.getItem(LS_HISTORY) || '[]');
                      const store = loadStore();
-                     const projects = Object.values(store).filter(s => s.id !== w.id && !history.find(h => h.id === s.id));
+                     const recentCanvases = Object.values(store)
+                       .filter(s => s.id !== w.id)
+                       .sort((a, b) => (b.updated || 0) - (a.updated || 0))
+                       .slice(0, 5);
                      
                      const handleSelect = (id) => {
-                       if (id === 'new_project') {
-                         newCanvas();
-                       } else if (id) {
+                       if (id) {
                          const store = loadStore();
                          if (store[id]) {
                            persist();
@@ -412,20 +412,20 @@ export const UIOverlay = ({
 
                      return (
                        <>
-                         {history.length > 0 ? (
+                         {recentCanvases.length > 0 ? (
                            <>
-                             {history.slice(0, 5).map(h => (
+                             {recentCanvases.map(c => (
                                <button 
-                                 key={h.id} 
-                                 onClick={() => handleSelect(h.id)}
+                                 key={c.id} 
+                                 onClick={() => handleSelect(c.id)}
                                  className="w-full text-left px-3 py-1.5 text-[13px] text-neutral-300 hover:bg-neutral-800/60 hover:text-white transition-colors truncate"
                                >
-                                 {h.name}
+                                 {c.name}
                                </button>
                              ))}
                            </>
                          ) : (
-                           <div className="px-3 py-1.5 text-[12px] text-neutral-500 italic">No recent canvases</div>
+                           <div className="px-3 py-1.5 text-[12px] text-neutral-500 italic">No other canvases</div>
                          )}
                         </>
                      );
