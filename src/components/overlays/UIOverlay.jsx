@@ -412,18 +412,9 @@ export const UIOverlay = ({
 
                      return (
                        <>
-                         <button 
-                           onClick={() => handleSelect('new_project')}
-                           className="w-full text-left px-3 py-1.5 text-[13px] text-neutral-300 hover:bg-neutral-800/60 hover:text-white transition-colors flex items-center gap-2 font-medium"
-                         >
-                           <PlusIcon size={14} className="text-neutral-400" /> New Canvas
-                         </button>
-                         
-                         {history.length > 0 && (
+                         {history.length > 0 ? (
                            <>
-                             <div className="w-full h-px my-1.5 bg-neutral-700/50" />
-                             <div className="text-[10px] font-semibold uppercase tracking-wider px-3 py-1 text-neutral-500">Recent</div>
-                             {history.map(h => (
+                             {history.slice(0, 5).map(h => (
                                <button 
                                  key={h.id} 
                                  onClick={() => handleSelect(h.id)}
@@ -433,22 +424,8 @@ export const UIOverlay = ({
                                </button>
                              ))}
                            </>
-                         )}
-                         
-                         {projects.length > 0 && (
-                           <>
-                             <div className="w-full h-px my-1.5 bg-neutral-700/50" />
-                             <div className="text-[10px] font-semibold uppercase tracking-wider px-3 py-1 text-neutral-500">All Projects</div>
-                             {projects.map(p => (
-                               <button 
-                                 key={p.id} 
-                                 onClick={() => handleSelect(p.id)}
-                                 className="w-full text-left px-3 py-1.5 text-[13px] text-neutral-300 hover:bg-neutral-800/60 hover:text-white transition-colors truncate"
-                               >
-                                 {p.name}
-                               </button>
-                             ))}
-                           </>
+                         ) : (
+                           <div className="px-3 py-1.5 text-[12px] text-neutral-500 italic">No recent canvases</div>
                          )}
                         </>
                      );
