@@ -72,6 +72,7 @@ export const UIOverlay = ({
   const [slashIndex, setSlashIndex] = useState(0);
   const [moveTopicMenuOpen, setMoveTopicMenuOpen] = useState(false);
   const [tipsOpen, setTipsOpen] = useState(false);
+  const [canvasMenuOpen, setCanvasMenuOpen] = useState(false);
 
   React.useEffect(() => {
     if (selIds.size === 0) {
@@ -370,46 +371,91 @@ export const UIOverlay = ({
             title="Click to rename canvas"
             className="bg-transparent text-neutral-300 hover:text-neutral-100 focus:text-neutral-100 text-sm font-medium outline-none border-b border-transparent focus:border-neutral-500/60 px-1 py-0.5 max-w-[150px] focus:max-w-[220px] transition-all truncate"
           />
-          <div className="relative flex items-center justify-center p-1 rounded-md hover:bg-neutral-800/40 text-neutral-400 hover:text-neutral-200 cursor-pointer" title="Switch Canvas">
-            <ChevronDownIcon size={14} />
-            <select 
-              value=""
-              onChange={(e) => {
-                const val = e.target.value;
-                if (val === 'new_project') {
-                  newCanvas();
-                } else if (val) {
-                  const store = loadStore();
-                  if (store[val]) {
-                    persist();
-                    localStorage.setItem(LS_CURRENT, val);
-                    window.location.reload();
-                  }
-                }
-              }}
-              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+          <div className="relative">
+            <div 
+              className="flex items-center justify-center p-1 rounded-md hover:bg-neutral-800/40 text-neutral-400 hover:text-neutral-200 cursor-pointer" 
+              title="Switch Canvas"
+              onClick={() => setCanvasMenuOpen(!canvasMenuOpen)}
             >
-              <option value="" disabled hidden></option>
-              {(() => {
-                 const history = JSON.parse(localStorage.getItem(LS_HISTORY) || '[]');
-                 const store = loadStore();
-                 const projects = Object.values(store).filter(s => s.id !== w.id && !history.find(h => h.id === s.id));
-                 return (
-                   <>
-                     {history.length > 0 && (
-                       <optgroup label="History">
-                         {history.map(h => <option key={h.id} value={h.id}>{h.name}</option>)}
-                       </optgroup>
-                     )}
-                     {projects.length > 0 && (
-                       <optgroup label="Projects">
-                         {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                       </optgroup>
-                     )}
-                    </>
-                 );
-              })()}
-            </select>
+              <ChevronDownIcon size={14} />
+            </div>
+
+            {canvasMenuOpen && (
+              <>
+                <div className="fixed inset-0 z-40" onClick={() => setCanvasMenuOpen(false)} />
+                <div 
+                  className="absolute top-full left-0 mt-2 w-56 rounded-2xl border border-neutral-700/80 bg-neutral-900/95 backdrop-blur-md shadow-2xl py-1.5 z-50 text-neutral-100 max-h-80 overflow-y-auto animate-pop-in"
+                  onClick={e => e.stopPropagation()}
+                >
+                  <div className="text-[10px] font-semibold uppercase tracking-wider px-3 py-1 text-neutral-500">
+                    Switch Canvas
+                  </div>
+                  
+                  {(() => {
+                     const history = JSON.parse(localStorage.getItem(LS_HISTORY) || '[]');
+                     const store = loadStore();
+                     const projects = Object.values(store).filter(s => s.id !== w.id && !history.find(h => h.id === s.id));
+                     
+                     const handleSelect = (id) => {
+                       if (id === 'new_project') {
+                         newCanvas();
+                       } else if (id) {
+                         const store = loadStore();
+                         if (store[id]) {
+                           persist();
+                           localStorage.setItem(LS_CURRENT, id);
+                           window.location.reload();
+                         }
+                       }
+                       setCanvasMenuOpen(false);
+                     };
+
+                     return (
+                       <>
+                         <button 
+                           onClick={() => handleSelect('new_project')}
+                           className="w-full text-left px-3 py-1.5 text-[13px] text-neutral-300 hover:bg-neutral-800/60 hover:text-white transition-colors flex items-center gap-2 font-medium"
+                         >
+                           <PlusIcon size={14} className="text-neutral-400" /> New Canvas
+                         </button>
+                         
+                         {history.length > 0 && (
+                           <>
+                             <div className="w-full h-px my-1.5 bg-neutral-700/50" />
+                             <div className="text-[10px] font-semibold uppercase tracking-wider px-3 py-1 text-neutral-500">Recent</div>
+                             {history.map(h => (
+                               <button 
+                                 key={h.id} 
+                                 onClick={() => handleSelect(h.id)}
+                                 className="w-full text-left px-3 py-1.5 text-[13px] text-neutral-300 hover:bg-neutral-800/60 hover:text-white transition-colors truncate"
+                               >
+                                 {h.name}
+                               </button>
+                             ))}
+                           </>
+                         )}
+                         
+                         {projects.length > 0 && (
+                           <>
+                             <div className="w-full h-px my-1.5 bg-neutral-700/50" />
+                             <div className="text-[10px] font-semibold uppercase tracking-wider px-3 py-1 text-neutral-500">All Projects</div>
+                             {projects.map(p => (
+                               <button 
+                                 key={p.id} 
+                                 onClick={() => handleSelect(p.id)}
+                                 className="w-full text-left px-3 py-1.5 text-[13px] text-neutral-300 hover:bg-neutral-800/60 hover:text-white transition-colors truncate"
+                               >
+                                 {p.name}
+                               </button>
+                             ))}
+                           </>
+                         )}
+                        </>
+                     );
+                  })()}
+                </div>
+              </>
+            )}
           </div>
         </div>
 
